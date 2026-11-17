@@ -328,6 +328,7 @@ fieldset{border:0;margin:0;padding:0}
 .av-it{display:flex;justify-content:space-between;gap:12px;text-align:left;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:10px 12px;cursor:pointer;color:var(--ink);font:inherit}
 .av-it:hover{border-color:var(--accent);background:var(--accent-soft)}
 .av-it small{display:block;color:var(--muted);font-size:12.5px}.av-it>span:last-child{text-align:right;white-space:nowrap}
+.cond-pick{display:flex;flex-direction:column;gap:6px}.cond-opt{display:flex;gap:10px;align-items:flex-start;color:var(--ink);font-size:14px;line-height:1.4;cursor:pointer}.cond-opt input{width:18px;height:18px;flex:none;margin-top:1px}
 .xm-list{display:flex;flex-direction:column;gap:6px;margin:6px 0}.xm-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.6fr) auto;gap:6px;align-items:center}
 .xm-pick{display:flex;flex-direction:column;gap:6px}.xm-opt{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:pointer;background:var(--surface)}.xm-opt input{width:auto}.xm-opt small{margin-left:6px}
 .co-results{display:flex;flex-direction:column;gap:6px;margin-top:6px}
@@ -569,6 +570,7 @@ function newDoc(type,base={}){
   const d={id:uid(),type,statut:'brouillon',...(S.settings.modeTest?{test:true}:{}),saisie:S.settings.saisiePrix==='ttc'?'ttc':'ht',date:today(),clientId:'',client:null,objet:'',nature:'services',lignes:[],notes:'',lienPaiement:'',createdAt:new Date().toISOString(),...base};
   if(type==='devis')d.validite=d.validite||addDays(d.date,S.settings.validiteDevis||30);
   if(type==='facture')d.echeance=d.echeance||addDays(d.date,S.settings.delaiPaiement??30);
+  if((type==='facture'||type==='devis')&&!Array.isArray(d.condsOff))d.condsOff=[];
   if(!d.lignes.length)d.lignes=[{id:uid(),designation:'',details:'',qte:1,unite:'u',pu:0,puTTC:0,tva:isFranchise()?0:8.5}];
   return d;
 }
@@ -821,7 +823,7 @@ function vParams(){
     ${f('titulaire','Titulaire du compte (exactement comme sur ton RIB)','text','full')}${f('iban','IBAN')}${f('bic','BIC (facultatif)')}
     ${f('penalites','Pénalités de retard','text','full')}
     <div class="field full"><label for="p-mentionsLibres">Mentions libres sur tous les documents (assurance, garanties…)</label><textarea id="p-mentionsLibres" data-p="mentionsLibres">${esc(s.mentionsLibres)}</textarea></div>
-    <div class="field full"><label for="p-conditionsDevis">Conditions de la prestation (imprimées sur les devis)</label><textarea id="p-conditionsDevis" data-p="conditionsDevis" style="min-height:150px">${esc(s.conditionsDevis)}</textarea><span class="hint">Une condition par ligne. Texte proposé à vérifier et adapter à tes vraies règles.</span></div>
+    <div class="field full"><label for="p-conditionsDevis">Conditions de la prestation (imprimées sur les devis et les factures, une par ligne)</label><textarea id="p-conditionsDevis" data-p="conditionsDevis" style="min-height:150px">${esc(s.conditionsDevis)}</textarea><span class="hint">Une condition par ligne. Texte proposé à vérifier et adapter à tes vraies règles.</span></div>
   </div></div>
   ${HOSTED?`<div class="panel"><div class="sec-title">L'appli sur ton téléphone</div><div class="body" style="padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px">
     ${window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches?`<span style="color:var(--ok);font-weight:600">✓ Tu utilises déjà l'appli installée.</span>`:`
@@ -1015,6 +1017,7 @@ function formHtml(d){
   <div class="panel"><div class="panel-h"><h2>Lignes</h2></div><div class="lines" id="e-lines">${linesHtml(d)}</div>
     <div class="add-row"><button class="btn" id="e-addline">+ Ligne libre</button>${S.formules.length?`<select id="e-addform"><option value="">+ Formule…</option>${[...S.formules].sort((a,b)=>(a.nom||'').localeCompare(b.nom||'')).map(f=>`<option value="${f.id}">${esc(f.nom)}</option>`).join('')}</select>`:''}<button class="btn" id="e-remise">+ Remise</button>${d.type==='facture'&&!d.acompteDe?'<button class="btn" id="e-dedac">+ Déduire un acompte</button>':''}${S.articles.length?`<select id="e-addart"><option value="">+ Depuis le catalogue…</option>${[...S.articles].sort((a,b)=>(a.designation||'').localeCompare(b.designation||'')).map(a=>`<option value="${a.id}">${esc(a.designation)} · ${eur(+a.pu||0)}</option>`).join('')}</select>`:`<a class="btn ghost sm" href="#catalogue" id="e-tocat">Créer un catalogue</a>`}</div>
     <div class="totals" id="e-totals"></div></div>
+  ${(d.type==='devis'||d.type==='facture')&&condAll().length?`<div class="panel"><div class="panel-h"><h2>Conditions de la prestation</h2><span class="muted" style="font-size:13px">Décoche celles à ne pas imprimer sur ce document</span></div><div class="form"><div class="field full cond-pick">${condAll().map((x,i)=>`<label class="cond-opt"><input type="checkbox" data-cond="${i}" ${(d.condsOff||[]).includes(x)?'':'checked'}><span>${esc(x)}</span></label>`).join('')}</div></div></div>`:''}
   <div class="panel"><div class="form">
     ${d.type==='devis'?`<div class="field full"><label style="display:flex;align-items:center;gap:8px;color:var(--ink);font-size:14px;font-weight:500"><input type="checkbox" id="e-acDem" ${d.acompteDemande?'checked':''} style="width:18px;height:18px"> Acompte à verser à la commande</label>
       <div class="row" id="e-acRow" ${d.acompteDemande?'':'hidden'}><input type="number" min="1" max="100" step="1" id="e-acPct" value="${esc(d.acomptePct||30)}" style="width:90px" aria-label="Pourcentage d'acompte"><span>%</span><span class="muted num" id="e-acMt"></span></div></div>`:''}
@@ -1065,6 +1068,7 @@ function bindForm(ed){
     $('#e-lines').innerHTML=linesHtml(S.edit);sf.value='';updatePreview();toast(`Formule « ${f.nom} » ajoutée`);});
   $('#e-remise',ed).addEventListener('click',remiseForm);const dda=$('#e-dedac',ed);if(dda)dda.addEventListener('click',dedAcompteForm);
   
+  $$('[data-cond]',ed).forEach(cb=>cb.addEventListener('change',()=>{const all=condAll();S.edit.condsOff=all.filter((x,i)=>{const c=$(`[data-cond="${i}"]`,ed);return c&&!c.checked;});updatePreview();}));
   const acd=$('#e-acDem',ed);if(acd){const acp=$('#e-acPct',ed);
     acd.addEventListener('change',()=>{S.edit.acompteDemande=acd.checked;if(acd.checked&&!S.edit.acomptePct)S.edit.acomptePct=+acp.value||30;$('#e-acRow',ed).hidden=!acd.checked;updatePreview();});
     acp.addEventListener('input',()=>{S.edit.acomptePct=Math.min(100,Math.max(0,+acp.value||0));updatePreview();});}
@@ -1128,12 +1132,12 @@ function bindRo(ed){
     if(a==='tofacture'){const acs=acomptesOf(d);
       if(acs.some(x=>!x.seq)){toast("Émets ou supprime d'abord la facture d'acompte en brouillon, avant la facture de solde.");return;}
       const ded=acs.flatMap(ac=>ac.lignes.map(l=>({id:uid(),designation:`Acompte déjà facturé (facture n° ${ac.numero})`,details:'',qte:1,unite:'forfait',pu:-r2(lineHT(l,ac)),puTTC:-lineTTC(l,ac),tva:l.tva,acompteRef:ac.id})));
-      const f=newDoc('facture',{...evtOf(d),clientId:d.clientId,objet:d.objet,saisie:d.saisie||'ht',lignes:[...d.lignes.map(l=>({...l,id:uid()})),...ded],notes:'',devisId:d.id,devisNumero:d.numero});
+      const f=newDoc('facture',{...evtOf(d),clientId:d.clientId,objet:d.objet,saisie:d.saisie||'ht',lignes:[...d.lignes.map(l=>({...l,id:uid()})),...ded],notes:'',condsOff:[...(d.condsOff||[])],devisId:d.id,devisNumero:d.numero});
       await safe(()=>put('docs',f));const nd={...d,statut:'facture',factureId:f.id};await safe(()=>put('docs',nd),'Facture créée en brouillon');openEditor(JSON.parse(JSON.stringify(f)));}
     if(a==='godevis'){const dv=S.docs.find(x=>x.id===(d.devisId||d.acompteDe));if(dv)openEditor(JSON.parse(JSON.stringify(dv)));else toast('Ce devis est introuvable');}
     if(a==='gofacture'){const f=S.docs.find(x=>x.id===d.factureId);if(f)openEditor(JSON.parse(JSON.stringify(f)));}
     if(a==='avoir'){const av=newDoc('avoir',{clientId:d.clientId,objet:'Avoir sur facture '+d.numero,saisie:d.saisie||'ht',lignes:d.lignes.map(l=>({...l,id:uid()})),factureId:d.id,avoirDe:d.numero,nature:d.nature});openEditor(av);toast('Avoir prérempli avec toutes les lignes. Ajuste les montants si l\'annulation est partielle.');}
-    if(a==='dup'){const n=newDoc(d.type==='avoir'?'facture':d.type,{...evtOf(d),clientId:d.clientId,objet:d.objet,saisie:d.saisie||'ht',lignes:d.lignes.map(l=>({...l,id:uid()})),notes:d.notes,nature:d.nature});openEditor(n);}
+    if(a==='dup'){const n=newDoc(d.type==='avoir'?'facture':d.type,{...evtOf(d),clientId:d.clientId,objet:d.objet,saisie:d.saisie||'ht',lignes:d.lignes.map(l=>({...l,id:uid()})),notes:d.notes,nature:d.nature,...(Array.isArray(d.condsOff)?{condsOff:[...d.condsOff]}:{})});openEditor(n);}
     if(a==='paid')payForm(d);
     if(a==='depot'){if(d.depot&&!await confirmBox('Classer à nouveau ?',`Cette facture a déjà été classée dans Factures FLP le ${fmtDate(String(d.depot.date||'').slice(0,10))}. La classer à nouveau ajoutera une 2ᵉ pièce.`,'Classer à nouveau'))return;depotFLP(d,!!d.depot);}
     if(a==='acompte')acompteForm(d);
@@ -1259,7 +1263,7 @@ function paperHtml(d){
    ${d.type==='facture'&&virLines(d,s).length?`<div class="pp-ment" style="margin-top:10px;color:var(--paper-ink)"><b>Par virement</b>${virLines(d,s).map(x=>'<br>'+esc(x)).join('')}</div>`:''}
    ${d.notes?`<p style="margin-top:12px">${esc(d.notes).replace(/\n/g,'<br>')}</p>`:''}
    ${d.type==='devis'&&d.lienDevis?`<div class="pp-pay"><b>${d.acompteDemande&&HOSTED&&window.GPF.sumup?"Accepter ce devis et régler l'acompte en ligne":'Accepter ce devis en ligne'} :</b> <a href="${esc(d.lienDevis)}" target="_blank" rel="noopener" style="color:var(--paper-accent)">${esc(d.lienDevis)}</a></div>`:''}
-   ${d.type==='devis'&&condLines(d).length?`<div class="pp-cond"><b>Conditions de la prestation</b>${condLines(d).map(x=>`<p>• ${esc(x)}</p>`).join('')}</div>`:''}
+   ${condLines(d).length?`<div class="pp-cond"><b>Conditions de la prestation</b>${condLines(d).map(x=>`<p>• ${esc(x)}</p>`).join('')}</div>`:''}
    ${d.type==='devis'?`<div class="pp-sign"><div>Bon pour accord, date et signature du client</div><div>Signature de l'entreprise</div></div>`:''}
    <div class="pp-ment">${legalLines(d).map(x=>`<p>${esc(x)}</p>`).join('')}</div></div>`;
 }
@@ -1345,7 +1349,7 @@ function buildPdf(d,fx){
     p.setDrawColor(...ACC);p.setLineWidth(.2);ul.forEach((l,i)=>p.line(M+4,y+4.2+i*4.2+0.8,M+4+p.getTextWidth(l),y+4.2+i*4.2+0.8));
     try{p.link(M,y-4.5,W-2*M,bh,{url});}catch(e){}
     y+=bh+4;}
-  if(d.type==='devis'&&condLines(d).length){p.setFontSize(8);const cl2=[];condLines(d).forEach(x=>cl2.push(...p.splitTextToSize('• '+x,W-2*M)));if(y+cl2.length*3.6+6>280){p.addPage();y=20;}txt('Conditions de la prestation',M,y,{b:1,s:8.5});y+=4;p.setFont(FF,'normal');p.setFontSize(8);p.setTextColor(...INK);p.text(cl2,M,y);y+=cl2.length*3.6+4;}
+  if(condLines(d).length){p.setFontSize(8);const cl2=[];condLines(d).forEach(x=>cl2.push(...p.splitTextToSize('• '+x,W-2*M)));if(y+cl2.length*3.6+6>280){p.addPage();y=20;}txt('Conditions de la prestation',M,y,{b:1,s:8.5});y+=4;p.setFont(FF,'normal');p.setFontSize(8);p.setTextColor(...INK);p.text(cl2,M,y);y+=cl2.length*3.6+4;}
   if(d.type==='devis'){if(y+26>280){p.addPage();y=20;}p.setDrawColor(...LINE);p.line(M,y,96,y);p.line(114,y,W-M,y);txt('Bon pour accord, date et signature du client',M,y+4,{s:8,c:MUT});txt("Signature de l'entreprise",114,y+4,{s:8,c:MUT});y+=26;}
   p.setFont(FF,'normal');p.setFontSize(7.5);const lg=[];legalLines(d).forEach(x=>lg.push(...p.splitTextToSize(x,W-2*M)));
   if(y+lg.length*3.4>287){p.addPage();y=20;}
@@ -1536,7 +1540,10 @@ function evtLines(d){
   return out;
 }
 function acompteDemande(d){if(d.type!=='devis'||!d.acompteDemande)return null;const pct=+d.acomptePct||30;return {pct,mt:r2(totals(d).ttc*pct/100)};}
-function condLines(d){const ac=d&&acompteDemande(d);return String(S.settings.conditionsDevis||'').split('\n').map(x=>x.trim()).filter(Boolean).filter(x=>!(d&&d.montantFerme===false&&/nombre de participants/i.test(x))).map(x=>ac?x:x.replace(/\s+et de l['’]acompte(?=\s*\.?\s*$)/i,''));}
+function condAll(){return String(S.settings.conditionsDevis||'').split('\n').map(x=>x.trim()).filter(Boolean);}
+/* devis : toujours (sauf conditions décochées) ; factures : seulement celles créées avec le choix des conditions */
+function condOn(d){return !!d&&(d.type==='devis'||(d.type==='facture'&&(Array.isArray(d.condsOff)||!d.seq)));}
+function condLines(d){if(d&&!condOn(d))return [];const ac=d&&acompteDemande(d);const off=new Set((d&&d.condsOff)||[]);return condAll().filter(x=>!off.has(x)).filter(x=>!(d&&d.montantFerme===false&&/nombre de participants/i.test(x))).map(x=>ac?x:x.replace(/\s+et de l['’]acompte(?=\s*\.?\s*$)/i,''));}
 
 /* ---------- remise ---------- */
 function remiseForm(){
