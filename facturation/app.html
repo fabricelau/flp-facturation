@@ -870,6 +870,7 @@ function bindView(v){
   $$('[data-filter]',v).forEach(b=>b.addEventListener('click',()=>{const [w,k]=b.dataset.filter.split(':');S.filter[w]=k;render();}));
   $$('input[id^="search-"]',v).forEach(i=>i.addEventListener('input',()=>{const w=i.id.slice(7);S.search={...(S.search||{}),[w]:i.value};render();const n=$('#'+i.id);n.focus();n.setSelectionRange(i.value.length,i.value.length);}));
   $$('[data-client]',v).forEach(b=>b.addEventListener('click',()=>clientForm(b.dataset.client==='new'?null:clientById(b.dataset.client))));
+  $$('[data-cdup]',v).forEach(b=>b.addEventListener('click',()=>{const c=clientById(b.dataset.cdup);if(c)clientForm(c,true);}));
   $$('[data-article]',v).forEach(b=>b.addEventListener('click',()=>articleForm(b.dataset.article==='new'?null:S.articles.find(a=>a.id===b.dataset.article))));
   const sp=$('#save-params',v);
   if(sp){
@@ -898,11 +899,13 @@ function bindView(v){
 }
 
 /* ---------- client & article forms ---------- */
-function clientForm(c){
-  const x=c?{...c}:{id:null,nom:'',prenom:'',nomFamille:'',type:'particulier',siren:'',tvaIntra:'',adresse:'',cp:'',ville:'',email:'',tel:'',contact:''};
+function clientForm(c,dup){
+  if(dup&&c){const {id,updatedAt,createdAt,source,...rest}=c;c=null;dup={...rest,_de:rest.nom};}
+  const x=dup?{id:null,...dup}:c?{...c}:{id:null,nom:'',prenom:'',nomFamille:'',type:'particulier',siren:'',tvaIntra:'',adresse:'',cp:'',ville:'',email:'',tel:'',contact:''};
   if(x.type!=='pro'&&!x.prenom&&!x.nomFamille&&x.nom){const p=x.nom.split(' ');x.prenom=p.length>1?p.shift():'';x.nomFamille=p.join(' ');}
   const f=(k,l,type='text',cls='')=>`<div class="field ${cls}"><label for="c-${k}">${l}</label><input type="${type}" id="c-${k}" data-k="${k}" value="${esc(x[k])}"></div>`;
-  return new Promise(res=>openModal(`<div class="panel-h"><h2>${c?'Modifier le client':'Nouveau client'}</h2><button class="btn ghost sm" data-a="close" aria-label="Fermer">${ICON.x}</button></div>
+  return new Promise(res=>openModal(`<div class="panel-h"><h2>${c?'Modifier le client':dup?'Dupliquer le client':'Nouveau client'}</h2><button class="btn ghost sm" data-a="close" aria-label="Fermer">${ICON.x}</button></div>
+    ${dup?`<div class="banner" style="margin:14px 16px 0;font-size:13px"><span>Copie de <b>${esc(dup._de)}</b> : modifie ce qui change (nom, contact, e-mail…) puis enregistre. Le client d'origine ne change pas.</span></div>`:''}
     <div class="form">
       <div class="field full"><label>Type</label><div class="seg" id="c-type"><button data-v="particulier" class="${x.type!=='pro'?'on':''}">Particulier</button><button data-v="pro" class="${x.type==='pro'?'on':''}">Professionnel</button></div></div>
       ${HOSTED?`<div class="field full for-pro"><label for="c-search">Rechercher l'entreprise (nom ou SIREN)</label><div class="row" style="flex-wrap:nowrap"><input type="text" id="c-search" placeholder="Ex. GB GLOBAL ou 988176129" autocomplete="off"><button class="btn" type="button" id="c-search-go">Rechercher</button></div><span class="hint">Les informations officielles se remplissent toutes seules depuis l'annuaire des entreprises.</span><div id="c-results" class="co-results"></div></div>`:''}
@@ -928,7 +931,7 @@ function clientForm(c){
         if(a.dataset.a==='save'){$$('[data-k]',dl).forEach(i=>x[i.dataset.k]=i.value.trim());
           if(x.type!=='pro'){if(!x.nomFamille){toast('Indique au moins le nom du client');return;}x.nom=[x.prenom,x.nomFamille].filter(Boolean).join(' ');x.contact='';x.siren='';x.tvaIntra='';}
           else if(!x.nom){toast('Indique la raison sociale du client');return;}
-          const saved=await safe(()=>put('clients',x),'Client enregistré');closeModal();res(saved);}
+          delete x._de;const saved=await safe(()=>put('clients',x),dup?'Copie du client enregistrée':'Client enregistré');closeModal();if(dup&&saved&&saved.id){S.clientView=saved.id;render();}res(saved);}
         if(a.dataset.a==='del'){if((S.allDocs||S.docs).some(d=>d.clientId===c.id&&d.seq)){toast("Ce client a des documents émis : il ne peut pas être supprimé.");return;}
           closeModal();if(await confirmBox('Supprimer ce client ?',esc(c.nom)+' sera retiré de ta liste.','Supprimer',true)){await safe(()=>remove('clients',c.id),'Client supprimé');}res(null);}
       });
@@ -1604,7 +1607,7 @@ function vClientDetail(c){
   const paid=fact.filter(d=>d.statut==='payee');
   return `<div><button class="btn ghost" data-cback="1">${ICON.back} Tous les clients</button></div>
   <div class="cl-head"><div><h1 style="font-size:26px">${esc(c.nom)}</h1><div class="cl-info"><span>${c.type==='pro'?'Professionnel':'Particulier'}${c.contact?' · '+esc(c.contact):''}${c.siren?' · SIREN '+esc(c.siren):''}</span><span>${esc([c.adresse,[c.cp,c.ville].filter(Boolean).join(' ')].filter(Boolean).join(', ')||'Adresse à compléter')}</span><span>${esc([c.email,c.tel].filter(Boolean).join(' · ')||'Pas d\'e-mail ni de téléphone')}</span></div></div>
-    <div class="row"><button class="btn" data-client="${c.id}">Modifier</button><button class="btn" data-new="facture" data-for="${c.id}">+ Facture</button><button class="btn primary" data-new="devis" data-for="${c.id}">+ Devis</button></div></div>
+    <div class="row"><button class="btn" data-client="${c.id}">Modifier</button><button class="btn" data-cdup="${c.id}" title="Créer un nouveau client à partir de celui-ci">Dupliquer</button><button class="btn" data-new="facture" data-for="${c.id}">+ Facture</button><button class="btn primary" data-new="devis" data-for="${c.id}">+ Devis</button></div></div>
   <div class="tiles">
     <div class="tile"><span class="lbl">Chiffre d'affaires</span><span class="val">${eur(ca)}</span><span class="sub">HT, depuis le début</span></div>
     <div class="tile ${late.length?'alert':''}"><span class="lbl">À encaisser</span><span class="val">${eur(sum(open))}</span><span class="sub">${late.length?late.length+' en retard':open.length+' facture'+(open.length>1?'s':'')}</span></div>
