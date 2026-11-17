@@ -328,6 +328,8 @@ fieldset{border:0;margin:0;padding:0}
 .av-it{display:flex;justify-content:space-between;gap:12px;text-align:left;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:10px 12px;cursor:pointer;color:var(--ink);font:inherit}
 .av-it:hover{border-color:var(--accent);background:var(--accent-soft)}
 .av-it small{display:block;color:var(--muted);font-size:12.5px}.av-it>span:last-child{text-align:right;white-space:nowrap}
+.xm-list{display:flex;flex-direction:column;gap:6px;margin:6px 0}.xm-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.6fr) auto;gap:6px;align-items:center}
+.xm-pick{display:flex;flex-direction:column;gap:6px}.xm-opt{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:pointer;background:var(--surface)}.xm-opt input{width:auto}.xm-opt small{margin-left:6px}
 .co-results{display:flex;flex-direction:column;gap:6px;margin-top:6px}
 .co-item{text-align:left;border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:8px 10px;cursor:pointer;display:flex;flex-direction:column;gap:2px}
 .co-item:hover{border-color:var(--accent)}
@@ -772,7 +774,7 @@ function vClients(){
   const ofTab=k=>k==='pro'?all.filter(isPro):k==='part'?all.filter(c=>!isPro(c)):all;
   const tabs=[['tous','Tous'],['part','Particuliers'],['pro','Professionnels']];
   const base=ofTab(cf);
-  const list=words.length?base.filter(c=>{const hay=nz([c.nom,c.prenom,c.nomFamille,c.contact,c.email,c.tel,c.adresse,c.cp,c.ville,c.siren,c.tvaIntra].join(' '))+' '+String(c.tel||'').replace(/\s/g,'');return words.every(w=>hay.includes(w));}):base;
+  const list=words.length?base.filter(c=>{const hay=nz([c.nom,c.prenom,c.nomFamille,c.contact,c.email,(c.emails||[]).map(m=>m.nom+' '+m.email).join(' '),c.tel,c.adresse,c.cp,c.ville,c.siren,c.tvaIntra].join(' '))+' '+String(c.tel||'').replace(/\s/g,'');return words.every(w=>hay.includes(w));}):base;
   return `<div class="head"><div><h1>Clients</h1><p>${all.length} client${all.length>1?'s':''}. Leurs coordonnées se recopient sur chaque devis et facture.</p></div><button class="btn primary" data-client="new">+ Nouveau client</button></div>
   ${all.length?`<div class="chips">${tabs.map(([k,l])=>`<button class="chip ${cf===k?'on':''}" data-filter="clients:${k}">${l}<span class="c">${ofTab(k).length}</span></button>`).join('')}</div>`:''}
   ${all.length?`<div class="row" style="justify-content:space-between;align-items:center"><input type="text" enterkeyhint="search" id="search-clients" placeholder="Rechercher un client : nom, ville, e-mail, téléphone, SIREN…" value="${esc(q)}" autocomplete="off" style="max-width:420px;flex:1">${words.length?`<span class="muted" style="font-size:14px">${list.length} résultat${list.length>1?'s':''}</span>`:''}</div>`:''}
@@ -917,6 +919,7 @@ function clientForm(c,dup){
       ${f('prenom','Prénom','text','for-part')}${f('nomFamille','Nom','text','for-part')}
       ${f('nom','Raison sociale','text','full for-pro')}${f('contact','Personne à contacter (facultatif)','text','for-pro')}${f('siren','SIREN','text','for-pro')}
       ${f('adresse','Adresse','text','full')}${f('cp','Code postal')}${f('ville','Ville')}${f('email','E-mail','email')}${f('tel','Téléphone','tel')}${f('tvaIntra','N° TVA intracommunautaire (facultatif)','text','full for-pro')}
+      <div class="field full"><label>Autres e-mails (facultatif)</label><span class="hint">Ajoute d'autres personnes chez ce client : tu choisiras à qui envoyer au moment de l'envoi.</span><div id="c-mails" class="xm-list"></div><button type="button" class="btn sm" data-a="addmail" style="align-self:flex-start">+ Ajouter un e-mail</button></div>
     </div>
     <div class="foot">${c?`<button class="btn danger" data-a="del" style="margin-right:auto">Supprimer</button>`:''}<button class="btn" data-a="close">Annuler</button><button class="btn primary" data-a="save">Enregistrer</button></div>`,dl=>{
       const sgo=$('#c-search-go',dl);if(sgo){const run=async()=>{const q=$('#c-search',dl).value.trim();const box=$('#c-results',dl);if(q.length<3){box.innerHTML='<span class="hint">Tape au moins 3 caractères.</span>';return;}
@@ -929,11 +932,18 @@ function clientForm(c,dup){
             box.innerHTML=`<span class="hint" style="color:var(--ok)">✓ Informations remplies depuis l'annuaire. Ajoute l'e-mail et le téléphone.</span>`;if(!c.actif)toast('Attention : cette entreprise est indiquée comme fermée.');}));
         }catch(e){box.innerHTML=`<span class="hint" style="color:var(--danger)">${esc(e.message||"La recherche n'a pas abouti.")}</span>`;}};
         sgo.addEventListener('click',run);$('#c-search',dl).addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();run();}});}
+      const mrow=(m={})=>`<div class="xm-row"><input type="text" class="xm-nom" placeholder="Nom (ex. Compta)" value="${esc(m.nom||'')}"><input type="email" class="xm-mail" placeholder="adresse@client.fr" value="${esc(m.email||'')}"><button type="button" class="btn ghost sm" data-a="delmail" aria-label="Retirer">${ICON.x}</button></div>`;
+      $('#c-mails',dl).innerHTML=(x.emails||[]).map(mrow).join('');
       const showType=()=>{$$('.for-part',dl).forEach(el=>el.hidden=x.type==='pro');$$('.for-pro',dl).forEach(el=>el.hidden=x.type!=='pro');};showType();
       $$('#c-type button',dl).forEach(b=>b.addEventListener('click',()=>{x.type=b.dataset.v;$$('#c-type button',dl).forEach(y=>y.classList.toggle('on',y===b));showType();}));
       dl.addEventListener('click',async e=>{const a=e.target.closest('[data-a]');if(!a)return;
         if(a.dataset.a==='close'){closeModal();res(null);}
+        if(a.dataset.a==='addmail'){$('#c-mails',dl).insertAdjacentHTML('beforeend',mrow());const r=$$('.xm-row',dl).pop();$('.xm-nom',r).focus();return;}
+        if(a.dataset.a==='delmail'){a.closest('.xm-row').remove();return;}
         if(a.dataset.a==='save'){$$('[data-k]',dl).forEach(i=>x[i.dataset.k]=i.value.trim());
+          const ems=$$('.xm-row',dl).map(r=>({nom:$('.xm-nom',r).value.trim(),email:$('.xm-mail',r).value.trim()})).filter(m=>m.email);
+          if(ems.some(m=>!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m.email))){toast('Une des adresses e-mail ajoutées est invalide');return;}
+          x.emails=ems.filter(m=>m.email.toLowerCase()!==String(x.email||'').toLowerCase());
           if(x.type!=='pro'){if(!x.nomFamille){toast('Indique au moins le nom du client');return;}x.nom=[x.prenom,x.nomFamille].filter(Boolean).join(' ');x.contact='';x.siren='';x.tvaIntra='';}
           else if(!x.nom){toast('Indique la raison sociale du client');return;}
           delete x._de;const saved=await safe(()=>put('clients',x),dup?'Copie du client enregistrée':'Client enregistré');closeModal();if(dup&&saved&&saved.id){S.clientView=saved.id;render();}res(saved);}
@@ -1611,7 +1621,7 @@ function vClientDetail(c){
   const sum=a=>a.reduce((s,d)=>s+totals(d).ttc,0);
   const paid=fact.filter(d=>d.statut==='payee');
   return `<div><button class="btn ghost" data-cback="1">${ICON.back} Tous les clients</button></div>
-  <div class="cl-head"><div><h1 style="font-size:26px">${esc(c.nom)}</h1><div class="cl-info"><span>${c.type==='pro'?'Professionnel':'Particulier'}${c.contact?' · '+esc(c.contact):''}${c.siren?' · SIREN '+esc(c.siren):''}</span><span>${esc([c.adresse,[c.cp,c.ville].filter(Boolean).join(' ')].filter(Boolean).join(', ')||'Adresse à compléter')}</span><span>${esc([c.email,c.tel].filter(Boolean).join(' · ')||'Pas d\'e-mail ni de téléphone')}</span></div></div>
+  <div class="cl-head"><div><h1 style="font-size:26px">${esc(c.nom)}</h1><div class="cl-info"><span>${c.type==='pro'?'Professionnel':'Particulier'}${c.contact?' · '+esc(c.contact):''}${c.siren?' · SIREN '+esc(c.siren):''}</span><span>${esc([c.adresse,[c.cp,c.ville].filter(Boolean).join(' ')].filter(Boolean).join(', ')||'Adresse à compléter')}</span><span>${esc([c.email,c.tel].filter(Boolean).join(' · ')||'Pas d\'e-mail ni de téléphone')}</span>${(c.emails||[]).length?`<span>Autres e-mails : ${(c.emails||[]).map(m=>esc(m.nom?m.nom+' ('+m.email+')':m.email)).join(' · ')}</span>`:''}</div></div>
     <div class="row"><button class="btn" data-client="${c.id}">Modifier</button><button class="btn" data-cdup="${c.id}" title="Créer un nouveau client à partir de celui-ci">Dupliquer</button><button class="btn" data-new="facture" data-for="${c.id}">+ Facture</button><button class="btn primary" data-new="devis" data-for="${c.id}">+ Devis</button></div></div>
   <div class="tiles">
     <div class="tile"><span class="lbl">Chiffre d'affaires</span><span class="val">${eur(ca)}</span><span class="sub">HT, depuis le début</span></div>
@@ -1816,12 +1826,15 @@ function mailSentScreen(dl,addr,fname,kind){
   toast((kind==='relance'?'Relance envoyée à ':'E-mail envoyé à ')+addr);
 }
 function emailForm(d,kind){
-  const tpl=mailTemplate(d,kind);const to=(d.client&&d.client.email)||(clientById(d.clientId)||{}).email||'';
+  const tpl=mailTemplate(d,kind);const cl=clientById(d.clientId)||{};const to=(d.client&&d.client.email)||cl.email||'';
+  const opts=[];const seen=new Set();const addO=(email,nom,on)=>{const k=String(email||'').trim().toLowerCase();if(!k||seen.has(k))return;seen.add(k);opts.push({email:String(email).trim(),nom:nom||'',on});};
+  addO(to,(d.client&&d.client.contact)||cl.contact||'Adresse principale',true);addO(cl.email,cl.contact||'Adresse principale',false);(cl.emails||[]).forEach(m=>addO(m.email,m.nom,false));
   const fname=pdfName(d);
   openModal(`<div class="panel-h"><h2>${kind==='relance'?'Relance':'Envoi'} de ${esc(TYPE_LBL[d.type].toLowerCase())} ${esc(d.numero||'')}</h2><button class="btn ghost sm" data-a="close" aria-label="Fermer">${ICON.x}</button></div>
     <div class="form">
       ${sentInfo(d,kind)?`<div class="field full"><div class="banner warn"><span><b>Déjà ${kind==='relance'?'relancé':'envoyé'} ${esc(sentInfo(d,kind))}.</b> Si tu cliques sur Envoyer, le client recevra un nouvel e-mail.</span></div></div>`:''}
-      <div class="field full"><label for="ml-to">Destinataire</label><input type="email" id="ml-to" value="${esc(to)}" placeholder="adresse@client.fr"></div>
+      ${opts.length>1?`<div class="field full"><label>Destinataires</label><div class="xm-pick">${opts.map((o,i)=>`<label class="xm-opt"><input type="checkbox" class="ml-pick" value="${esc(o.email)}" ${o.on?'checked':''}><span><b>${esc(o.email)}</b>${o.nom?` <small class="muted">${esc(o.nom)}</small>`:''}</span></label>`).join('')}</div></div>
+      <div class="field full"><label for="ml-to">Autre adresse (facultatif)</label><input type="text" id="ml-to" value="" placeholder="adresse@client.fr — plusieurs possibles, séparées par une virgule"></div>`:`<div class="field full"><label for="ml-to">Destinataire</label><input type="text" id="ml-to" value="${esc(to)}" placeholder="adresse@client.fr — plusieurs possibles, séparées par une virgule"></div>`}
       <div class="field full"><label for="ml-sub">Objet</label><input type="text" id="ml-sub" value="${esc(tpl.subject)}"></div>
       <div class="field full copybox"><label for="ml-body">Message</label><textarea id="ml-body">${esc(tpl.body)}</textarea></div>
       <div class="field full"><span class="hint">${HOSTED?`Le PDF (${esc(fname)}) sera joint. L'e-mail part <b>directement</b> au client quand tu cliques sur Envoyer, et tu en reçois une copie.`:S.mcp?`Le PDF (${esc(fname)}) sera joint. Le message arrive dans tes <b>brouillons Gmail</b> : tu le relis et tu cliques sur Envoyer.`:"La création du brouillon Gmail n'est pas disponible dans cette vue. Copie le texte et joins le PDF téléchargé à ton e-mail."}</span></div>
@@ -1835,11 +1848,14 @@ function emailForm(d,kind){
       if(a==='copy'){const txt=`Objet : ${$('#ml-sub',dl).value}\n\n${$('#ml-body',dl).value}`;try{await navigator.clipboard.writeText(txt);toast('Message copié');}catch(err){const ta=$('#ml-body',dl);ta.focus();ta.select();toast('Sélectionne le texte et copie-le');}return;}
       if(a==='pdf'){downloadPdf(d);return;}
       if(a==='gmail'){
-        const addr=$('#ml-to',dl).value.trim();if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(addr)){toast('Indique une adresse e-mail valide');return;}
+        const extra=$('#ml-to',dl).value.split(/[,;\s]+/).map(v=>v.trim()).filter(Boolean);
+        if(extra.some(v=>!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v))){toast('Une adresse e-mail est invalide');return;}
+        const list=[...new Set([...$$('.ml-pick:checked',dl).map(i=>i.value),...extra])];
+        if(!list.length){toast('Choisis au moins un destinataire');return;}const addr=list.join(', ');
         b.disabled=true;b.textContent=HOSTED?'Envoi…':'Création…';
         try{
           const content=await blobToB64(await makePdf(d));
-          const res=await S.mcp.callTool('Gmail','create_draft',{to:[addr],subject:$('#ml-sub',dl).value,body:$('#ml-body',dl).value,attachments:[{content,filename:fname,mimeType:'application/pdf'}],includeSignature:false});
+          const res=await S.mcp.callTool('Gmail','create_draft',{to:list,subject:$('#ml-sub',dl).value,body:$('#ml-body',dl).value,attachments:[{content,filename:fname,mimeType:'application/pdf'}],includeSignature:false});
           const pl=res&&res.payload;const url=pl&&(pl.viewUrl||(pl.draft&&pl.draft.viewUrl));
           const box=$('#ml-done',dl);box.hidden=false;box.innerHTML=HOSTED?`<div class="banner info"><span>E-mail envoyé à ${esc(addr)} avec le PDF joint.</span></div>`:`<div class="banner info"><span>Brouillon créé dans Gmail avec le PDF joint. Ouvre-le pour l'envoyer.</span>${url?`<a class="btn sm" href="${esc(url)}" target="_blank" rel="noopener" style="margin-left:auto">Ouvrir dans Gmail</a>`:''}</div>`;
           b.textContent=HOSTED?'E-mail envoyé':'Brouillon créé';
