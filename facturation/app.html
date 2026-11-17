@@ -764,10 +764,15 @@ function vDocs(which){
 }
 function vClients(){
   if(S.clientView&&clientById(S.clientView))return vClientDetail(clientById(S.clientView));
-  const list=[...S.clients].sort((a,b)=>(a.nom||'').localeCompare(b.nom||''));
-  return `<div class="head"><div><h1>Clients</h1><p>${list.length} client${list.length>1?'s':''}. Leurs coordonnées se recopient sur chaque devis et facture.</p></div><button class="btn primary" data-client="new">+ Nouveau client</button></div>
-  <div class="panel"><div class="list">${list.length?list.map(c=>{const docs=S.docs.filter(d=>d.clientId===c.id&&d.type==='facture'&&d.seq);const ca=docs.reduce((s,d)=>s+totals(d).ht,0);
-    return `<button class="li" style="grid-template-columns:minmax(0,1fr) 130px 140px" data-cview="${c.id}"><span class="cl"><b style="font-weight:600">${esc(c.nom)}</b><small>${esc([c.adresse,c.cp,c.ville].filter(Boolean).join(', ')||'Adresse à compléter')}</small></span><span><span class="pill ${c.type==='pro'?'p-acc':'p-draft'}">${c.type==='pro'?'Professionnel':'Particulier'}</span></span><span class="r num">${eur(ca)} HT</span></button>`;}).join(''):`<div class="empty"><span>Pas encore de client.</span><button class="btn primary" data-client="new">Ajouter un client</button></div>`}</div></div>`;
+  const all=[...S.clients].sort((a,b)=>(a.nom||'').localeCompare(b.nom||''));
+  const q=(S.search&&S.search.clients)||'';
+  const nz=t=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  const words=nz(q).split(/\s+/).filter(Boolean);
+  const list=words.length?all.filter(c=>{const hay=nz([c.nom,c.prenom,c.nomFamille,c.contact,c.email,c.tel,c.adresse,c.cp,c.ville,c.siren,c.tvaIntra].join(' '))+' '+String(c.tel||'').replace(/\s/g,'');return words.every(w=>hay.includes(w));}):all;
+  return `<div class="head"><div><h1>Clients</h1><p>${all.length} client${all.length>1?'s':''}. Leurs coordonnées se recopient sur chaque devis et facture.</p></div><button class="btn primary" data-client="new">+ Nouveau client</button></div>
+  ${all.length?`<div class="row" style="justify-content:space-between;align-items:center"><input type="text" enterkeyhint="search" id="search-clients" placeholder="Rechercher un client : nom, ville, e-mail, téléphone, SIREN…" value="${esc(q)}" autocomplete="off" style="max-width:420px;flex:1">${words.length?`<span class="muted" style="font-size:14px">${list.length} résultat${list.length>1?'s':''}</span>`:''}</div>`:''}
+  <div class="panel"><div class="list">${!list.length&&all.length?`<div class="empty"><span>Aucun client ne correspond à « ${esc(q)} ».</span></div>`:''}${list.length?list.map(c=>{const docs=S.docs.filter(d=>d.clientId===c.id&&d.type==='facture'&&d.seq);const ca=docs.reduce((s,d)=>s+totals(d).ht,0);
+    return `<button class="li" style="grid-template-columns:minmax(0,1fr) 130px 140px" data-cview="${c.id}"><span class="cl"><b style="font-weight:600">${esc(c.nom)}</b><small>${esc([c.adresse,c.cp,c.ville].filter(Boolean).join(', ')||'Adresse à compléter')}</small></span><span><span class="pill ${c.type==='pro'?'p-acc':'p-draft'}">${c.type==='pro'?'Professionnel':'Particulier'}</span></span><span class="r num">${eur(ca)} HT</span></button>`;}).join(''):(all.length?'':`<div class="empty"><span>Pas encore de client.</span><button class="btn primary" data-client="new">Ajouter un client</button></div>`)}</div></div>`;
 }
 function vCatalogue(){
   const list=[...S.articles].sort((a,b)=>(a.designation||'').localeCompare(b.designation||''));
