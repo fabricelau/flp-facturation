@@ -1001,6 +1001,7 @@ function formHtml(d){
   return `<div class="panel"><div class="form">
     <div class="field full"><label for="e-client">Client</label><div class="row" style="flex-wrap:nowrap"><select id="e-client"><option value="">Choisir un client…</option>${cl.map(c=>`<option value="${c.id}" ${c.id===d.clientId?'selected':''}>${esc(c.nom)}</option>`).join('')}</select><button class="btn" id="e-newclient">+ Nouveau</button></div></div>
     <div class="field full"><label for="e-objet">Objet</label><input type="text" id="e-objet" data-f="objet" value="${esc(d.objet)}" placeholder="Ex. Rénovation salle de bain"></div>
+    ${d.test&&!d.numero&&d.type!=='avoir'?`<div class="field full"><label for="e-numeroTest">Numéro (mode test)</label><input type="text" id="e-numeroTest" data-f="numeroTest" value="${esc(d.numeroTest||'')}" placeholder="Automatique : ${esc(makeNumero(d.type,nextSeq(d.type),d.date||today()))}"><span class="hint">Laisse vide pour la numérotation automatique, ou tape le numéro de ton choix (ex. 0630). Ça ne touche pas à la numérotation de tes vraies factures.</span></div>`:''}
     <div class="field"><label for="e-date">Date</label><input type="date" id="e-date" data-f="date" value="${esc(d.date)}"></div>
     ${d.type==='devis'?`<div class="field"><label for="e-validite">Valable jusqu'au</label><input type="date" id="e-validite" data-f="validite" value="${esc(d.validite)}"></div>`:''}
     ${d.type==='facture'?`<div class="field"><label for="e-echeance">Échéance de paiement</label><input type="date" id="e-echeance" data-f="echeance" value="${esc(d.echeance)}"></div>`:''}
@@ -1082,7 +1083,8 @@ async function saveDraft(){const d=S.edit;d.client=snapshotClient(clientById(d.c
 async function emit(){
   const d=S.edit;const errs=validateForEmit(d);
   if(errs.length){openModal(`<div class="panel-h"><h2>Il manque quelques informations</h2></div><div class="body"><div class="errs">Pour émettre ce document, ajoute :<ul>${errs.map(e=>`<li>${esc(e)}</li>`).join('')}</ul></div></div><div class="foot">${errs.some(e=>e.includes('Réglages'))?`<a class="btn" href="#parametres" data-a="go">Ouvrir les réglages</a>`:''}<button class="btn primary" data-a="ok">Compris</button></div>`,dl=>dl.addEventListener('click',e=>{const a=e.target.closest('[data-a]');if(!a)return;closeModal();if(a.dataset.a==='go'){saveDraft().then(closeEditor,()=>{});}}));return;}
-  const seq=nextSeq(d.type);const numero=makeNumero(d.type,seq,d.date);
+  const seq=nextSeq(d.type);const numero=(d.test&&String(d.numeroTest||'').trim())||makeNumero(d.type,seq,d.date);
+  if(d.test&&String(d.numeroTest||'').trim()&&(S.allDocs||S.docs).some(x=>x.id!==d.id&&x.test&&x.type===d.type&&x.numero===numero)){toast(`Le numéro ${numero} est déjà utilisé par un document de test`);return;}
   const msg=d.type==='devis'?`Le devis recevra le numéro <b class="num">${esc(numero)}</b>. Il sera marqué « Émis, à envoyer » jusqu'à ce que tu l'envoies au client.`
     :`${d.type==='facture'?'La facture':"L'avoir"} recevra le numéro <b class="num">${esc(numero)}</b>. Une fois émis, le document ne pourra plus être modifié ni supprimé : toute correction passera par un avoir.`;
   const cc=clientById(d.clientId);
@@ -1248,9 +1250,9 @@ function paperHtml(d){
   const s=d.entreprise||S.settings;const c=d.client&&locked(d)?d.client:snapshotClient(clientById(d.clientId));const t=totals(d);const fr=s.regimeTva==='franchise';
   const ttl=d.acompteDe?"FACTURE D'ACOMPTE":{devis:'DEVIS',facture:'FACTURE',avoir:'AVOIR'}[d.type];
   const lines=(d.lignes||[]).filter(l=>l.designation||hasPrice(l));
-  return `<div class="pp">${d.statut==='brouillon'?'<div class="pp-wm">BROUILLON</div>':d.test?'<div class="pp-wm">TEST</div>':''}
+  return `<div class="pp">${d.statut==='brouillon'?'<div class="pp-wm">BROUILLON</div>':''}
    <div class="pp-top"><div class="pp-co">${S.settings.logo?`<img class="pp-logo" src="${S.settings.logo}" alt="">`:''}<b>${esc(s.nom||'Nom de ton entreprise')}</b>${coLines(s).map(esc).join('<br>')}</div>
-   <div class="pp-title"><h4>${ttl}</h4><div class="n">${esc(d.numero||'N° attribué à l\'émission')}</div><div>Date : ${fmtDate(d.date)}</div>${d.type==='facture'?`<div>Échéance : ${fmtDate(d.echeance)}</div>`:''}${d.type==='devis'?`<div>Validité : ${fmtDate(d.validite)}</div>`:''}</div></div>
+   <div class="pp-title"><h4>${ttl}</h4><div class="n">${esc(d.numero||(d.test&&String(d.numeroTest||'').trim())||'N° attribué à l\'émission')}</div><div>Date : ${fmtDate(d.date)}</div>${d.type==='facture'?`<div>Échéance : ${fmtDate(d.echeance)}</div>`:''}${d.type==='devis'?`<div>Validité : ${fmtDate(d.validite)}</div>`:''}</div></div>
    <div class="pp-cl"><b>${esc(c?c.nom:'Client')}</b><br>${clLines(c).map(esc).join('<br>')}</div>
    ${d.objet?`<p class="pp-obj"><b>Objet :</b> ${esc(d.objet)}</p>`:''}
    ${evtLines(d).length?`<div class="pp-evt">${evtLines(d).map(x=>`<div>${esc(x)}</div>`).join('')}</div>`:''}
@@ -1283,7 +1285,7 @@ function buildPdf(d,fx){
   const ACC=[184,48,47],INK=[27,31,30],MUT=[107,116,113],LINE=[218,223,221];
   const W=210,M=16;let y=18;
   const txt=(str,x,yy,o={})=>{p.setFont(FF,o.b?'bold':'normal');p.setFontSize(o.s||9);p.setTextColor(...(o.c||INK));p.text(String(str),x,yy,o.a?{align:o.a}:undefined);};
-  if(d.statut==='brouillon'||d.test){p.setFont(FF,'bold');p.setFontSize(70);p.setTextColor(235,238,237);p.text(d.statut==='brouillon'?'BROUILLON':'TEST',105,170,{align:'center',angle:25});}
+  if(d.statut==='brouillon'){p.setFont(FF,'bold');p.setFontSize(70);p.setTextColor(235,238,237);p.text('BROUILLON',105,170,{align:'center',angle:25});}
   const L=S.settings;if(L.logo&&L.logoW&&L.logoH){try{const r=Math.min(45/L.logoW,18/L.logoH);const w=L.logoW*r,h=L.logoH*r;p.addImage(L.logo,L.logo.startsWith('data:image/png')?'PNG':'JPEG',M,y-6,w,h);y+=h-1;}catch(e){console.warn(e);}}
   txt(s.nom||'',M,y,{b:1,s:13});let yy=y+5;p.setFont(FF,'normal');p.setFontSize(8.5);coLines(s).forEach(l=>p.splitTextToSize(l,88).forEach(x=>{txt(x,M,yy,{c:MUT,s:8.5});yy+=4;}));
   const ttl=d.acompteDe?"FACTURE D'ACOMPTE":{devis:'DEVIS',facture:'FACTURE',avoir:'AVOIR'}[d.type];
