@@ -393,6 +393,12 @@ const TVA_RATES=[8.5,2.1,1.05,0,20,10,5.5];
 const UNITES=['u','h','jour','forfait','m²','ml','m³','kg','lot'];
 const MODES=['Virement','Chèque','Espèces','Carte bancaire'];
 const NATURES={services:'Prestation de services',biens:'Livraison de biens',mixte:'Mixte (biens et services)'};
+const DEFAULT_COND_FACT=`Les fichiers définitifs sont transmis après règlement complet de la présente facture.
+Les droits d'utilisation des images et vidéos sont cédés au client après paiement intégral, pour l'usage prévu lors de la commande.
+Toute modification demandée après livraison fait l'objet d'une facturation complémentaire.
+Les fichiers sources (rushs, fichiers bruts) restent la propriété de Fabrice Lau Production, sauf accord écrit.
+Les fichiers livrés sont conservés 6 mois après la livraison ; au-delà, leur conservation n'est plus garantie.
+Fabrice Lau Production se réserve le droit d'utiliser des extraits de la réalisation pour sa communication (site, réseaux sociaux), sauf refus écrit du client.`;
 const DEFAULT_COND=`Commande confirmée à réception du devis signé et de l'acompte.
 Le devis couvre la prestation décrite ci-dessus. Toute demande supplémentaire fera l'objet d'un devis complémentaire.
 Deux séries de corrections sur le montage sont incluses. Les suivantes sont facturées au temps passé.
@@ -401,7 +407,7 @@ En cas d'annulation par le client moins de 7 jours avant le tournage, l'acompte 
 En cas d'intempéries empêchant le tournage, une nouvelle date est fixée d'un commun accord, sans frais.`;
 const EVT_KEYS=['evtDate','evtHeure','evtDuree','evtLieu','evtNote'];
 const evtOf=d=>Object.fromEntries(EVT_KEYS.filter(k=>d[k]!=null&&d[k]!=='').map(k=>[k,d[k]]));
-const DEFAULT_SETTINGS={nom:'',forme:'Entreprise individuelle',siren:'',rcs:'',adresse:'',cp:'',ville:'',tel:'',email:'',tvaIntra:'',regimeTva:'normal',tvaSurDebits:false,saisiePrix:'ht',logo:'',logoW:0,logoH:0,conditionsDevis:DEFAULT_COND,iban:'',bic:'',delaiPaiement:30,validiteDevis:30,
+const DEFAULT_SETTINGS={nom:'',forme:'Entreprise individuelle',siren:'',rcs:'',adresse:'',cp:'',ville:'',tel:'',email:'',tvaIntra:'',regimeTva:'normal',tvaSurDebits:false,saisiePrix:'ht',logo:'',logoW:0,logoH:0,conditionsDevis:DEFAULT_COND,conditionsFacture:DEFAULT_COND_FACT,iban:'',bic:'',delaiPaiement:30,validiteDevis:30,
   prefixeFacture:'',prefixeDevis:'D',prefixeAvoir:'AV',annee:false,debutFacture:1,debutDevis:1,debutAvoir:1,mentionsLibres:'',penalites:"Taux d'intérêt de la BCE majoré de 10 points"};
 
 /* ---------- state ---------- */
@@ -570,7 +576,8 @@ function newDoc(type,base={}){
   const d={id:uid(),type,statut:'brouillon',...(S.settings.modeTest?{test:true}:{}),saisie:S.settings.saisiePrix==='ttc'?'ttc':'ht',date:today(),clientId:'',client:null,objet:'',nature:'services',lignes:[],notes:'',lienPaiement:'',createdAt:new Date().toISOString(),...base};
   if(type==='devis')d.validite=d.validite||addDays(d.date,S.settings.validiteDevis||30);
   if(type==='facture')d.echeance=d.echeance||addDays(d.date,S.settings.delaiPaiement??30);
-  if((type==='facture'||type==='devis')&&!Array.isArray(d.condsOff))d.condsOff=[];
+  if(type==='devis'&&!Array.isArray(d.condsOff))d.condsOff=[];
+  if(type==='facture'){delete d.condsOff;if(!Array.isArray(d.condsOn))d.condsOn=[];}
   if(!d.lignes.length)d.lignes=[{id:uid(),designation:'',details:'',qte:1,unite:'u',pu:0,puTTC:0,tva:isFranchise()?0:8.5}];
   return d;
 }
@@ -823,7 +830,8 @@ function vParams(){
     ${f('titulaire','Titulaire du compte (exactement comme sur ton RIB)','text','full')}${f('iban','IBAN')}${f('bic','BIC (facultatif)')}
     ${f('penalites','Pénalités de retard','text','full')}
     <div class="field full"><label for="p-mentionsLibres">Mentions libres sur tous les documents (assurance, garanties…)</label><textarea id="p-mentionsLibres" data-p="mentionsLibres">${esc(s.mentionsLibres)}</textarea></div>
-    <div class="field full"><label for="p-conditionsDevis">Conditions de la prestation (imprimées sur les devis et les factures, une par ligne)</label><textarea id="p-conditionsDevis" data-p="conditionsDevis" style="min-height:150px">${esc(s.conditionsDevis)}</textarea><span class="hint">Une condition par ligne. Texte proposé à vérifier et adapter à tes vraies règles.</span></div>
+    <div class="field full"><label for="p-conditionsDevis">Conditions de la prestation sur les devis (une par ligne)</label><textarea id="p-conditionsDevis" data-p="conditionsDevis" style="min-height:150px">${esc(s.conditionsDevis)}</textarea><span class="hint">Une condition par ligne. Texte proposé à vérifier et adapter à tes vraies règles.</span></div>
+    <div class="field full"><label for="p-conditionsFacture">Conditions proposées sur les factures (une par ligne)</label><textarea id="p-conditionsFacture" data-p="conditionsFacture" style="min-height:150px">${esc(s.conditionsFacture)}</textarea><span class="hint">Elles apparaissent décochées dans chaque facture : coche seulement celles que tu veux imprimer.</span></div>
   </div></div>
   ${HOSTED?`<div class="panel"><div class="sec-title">L'appli sur ton téléphone</div><div class="body" style="padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px">
     ${window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches?`<span style="color:var(--ok);font-weight:600">✓ Tu utilises déjà l'appli installée.</span>`:`
@@ -997,6 +1005,7 @@ function renderEditor(){
 }
 function dirty(){const d=S.edit;const orig=S.docs.find(x=>x.id===d.id);if(!orig)return (d.lignes||[]).some(l=>l.designation)||!!d.clientId;const a=strip(orig),b=strip(d);delete a.updatedAt;delete b.updatedAt;return JSON.stringify(a)!==JSON.stringify(b);}
 function formHtml(d){
+  if(d.type==='facture'&&!d.numero&&!Array.isArray(d.condsOn)){d.condsOn=[];delete d.condsOff;}
   const cl=[...S.clients].sort((a,b)=>(a.nom||'').localeCompare(b.nom||''));
   return `<div class="panel"><div class="form">
     <div class="field full"><label for="e-client">Client</label><div class="row" style="flex-wrap:nowrap"><select id="e-client"><option value="">Choisir un client…</option>${cl.map(c=>`<option value="${c.id}" ${c.id===d.clientId?'selected':''}>${esc(c.nom)}</option>`).join('')}</select><button class="btn" id="e-newclient">+ Nouveau</button></div></div>
@@ -1018,7 +1027,7 @@ function formHtml(d){
   <div class="panel"><div class="panel-h"><h2>Lignes</h2></div><div class="lines" id="e-lines">${linesHtml(d)}</div>
     <div class="add-row"><button class="btn" id="e-addline">+ Ligne libre</button>${S.formules.length?`<select id="e-addform"><option value="">+ Formule…</option>${[...S.formules].sort((a,b)=>(a.nom||'').localeCompare(b.nom||'')).map(f=>`<option value="${f.id}">${esc(f.nom)}</option>`).join('')}</select>`:''}<button class="btn" id="e-remise">+ Remise</button>${d.type==='facture'&&!d.acompteDe?'<button class="btn" id="e-dedac">+ Déduire un acompte</button>':''}${S.articles.length?`<select id="e-addart"><option value="">+ Depuis le catalogue…</option>${[...S.articles].sort((a,b)=>(a.designation||'').localeCompare(b.designation||'')).map(a=>`<option value="${a.id}">${esc(a.designation)} · ${eur(+a.pu||0)}</option>`).join('')}</select>`:`<a class="btn ghost sm" href="#catalogue" id="e-tocat">Créer un catalogue</a>`}</div>
     <div class="totals" id="e-totals"></div></div>
-  ${(d.type==='devis'||d.type==='facture')&&condAll().length?`<div class="panel"><div class="panel-h"><h2>Conditions de la prestation</h2><span class="muted" style="font-size:13px">Décoche celles à ne pas imprimer sur ce document</span></div><div class="form"><div class="field full cond-pick">${condAll().map((x,i)=>`<label class="cond-opt"><input type="checkbox" data-cond="${i}" ${(d.condsOff||[]).includes(x)?'':'checked'}><span>${esc(x)}</span></label>`).join('')}</div></div></div>`:''}
+  ${(d.type==='devis'||d.type==='facture')&&condAll(d).length?`<div class="panel"><div class="panel-h"><h2>${d.type==='facture'?'Conditions sur la facture':'Conditions de la prestation'}</h2><span class="muted" style="font-size:13px">${d.type==='facture'?'Coche celles à imprimer sur cette facture':'Décoche celles à ne pas imprimer sur ce document'}</span></div><div class="form"><div class="field full cond-pick">${condAll(d).map((x,i)=>`<label class="cond-opt"><input type="checkbox" data-cond="${i}" ${(condFact(d)?d.condsOn.includes(x):!(d.condsOff||[]).includes(x))?'checked':''}><span>${esc(x)}</span></label>`).join('')}</div></div></div>`:''}
   <div class="panel"><div class="form">
     ${d.type==='devis'?`<div class="field full"><label style="display:flex;align-items:center;gap:8px;color:var(--ink);font-size:14px;font-weight:500"><input type="checkbox" id="e-acDem" ${d.acompteDemande?'checked':''} style="width:18px;height:18px"> Acompte à verser à la commande</label>
       <div class="row" id="e-acRow" ${d.acompteDemande?'':'hidden'}><input type="number" min="1" max="100" step="1" id="e-acPct" value="${esc(d.acomptePct||30)}" style="width:90px" aria-label="Pourcentage d'acompte"><span>%</span><span class="muted num" id="e-acMt"></span></div></div>`:''}
@@ -1069,7 +1078,7 @@ function bindForm(ed){
     $('#e-lines').innerHTML=linesHtml(S.edit);sf.value='';updatePreview();toast(`Formule « ${f.nom} » ajoutée`);});
   $('#e-remise',ed).addEventListener('click',remiseForm);const dda=$('#e-dedac',ed);if(dda)dda.addEventListener('click',dedAcompteForm);
   
-  $$('[data-cond]',ed).forEach(cb=>cb.addEventListener('change',()=>{const all=condAll();S.edit.condsOff=all.filter((x,i)=>{const c=$(`[data-cond="${i}"]`,ed);return c&&!c.checked;});updatePreview();}));
+  $$('[data-cond]',ed).forEach(cb=>cb.addEventListener('change',()=>{const all=condAll(S.edit);const st=i=>{const c=$(`[data-cond="${i}"]`,ed);return !!(c&&c.checked);};if(condFact(S.edit))S.edit.condsOn=all.filter((x,i)=>st(i));else S.edit.condsOff=all.filter((x,i)=>!st(i));updatePreview();}));
   const acd=$('#e-acDem',ed);if(acd){const acp=$('#e-acPct',ed);
     acd.addEventListener('change',()=>{S.edit.acompteDemande=acd.checked;if(acd.checked&&!S.edit.acomptePct)S.edit.acomptePct=+acp.value||30;$('#e-acRow',ed).hidden=!acd.checked;updatePreview();});
     acp.addEventListener('input',()=>{S.edit.acomptePct=Math.min(100,Math.max(0,+acp.value||0));updatePreview();});}
@@ -1134,12 +1143,12 @@ function bindRo(ed){
     if(a==='tofacture'){const acs=acomptesOf(d);
       if(acs.some(x=>!x.seq)){toast("Émets ou supprime d'abord la facture d'acompte en brouillon, avant la facture de solde.");return;}
       const ded=acs.flatMap(ac=>ac.lignes.map(l=>({id:uid(),designation:`Acompte déjà facturé (facture n° ${ac.numero})`,details:'',qte:1,unite:'forfait',pu:-r2(lineHT(l,ac)),puTTC:-lineTTC(l,ac),tva:l.tva,acompteRef:ac.id})));
-      const f=newDoc('facture',{...evtOf(d),clientId:d.clientId,objet:d.objet,saisie:d.saisie||'ht',lignes:[...d.lignes.map(l=>({...l,id:uid()})),...ded],notes:'',condsOff:[...(d.condsOff||[])],devisId:d.id,devisNumero:d.numero});
+      const f=newDoc('facture',{...evtOf(d),clientId:d.clientId,objet:d.objet,saisie:d.saisie||'ht',lignes:[...d.lignes.map(l=>({...l,id:uid()})),...ded],notes:'',devisId:d.id,devisNumero:d.numero});
       await safe(()=>put('docs',f));const nd={...d,statut:'facture',factureId:f.id};await safe(()=>put('docs',nd),'Facture créée en brouillon');openEditor(JSON.parse(JSON.stringify(f)));}
     if(a==='godevis'){const dv=S.docs.find(x=>x.id===(d.devisId||d.acompteDe));if(dv)openEditor(JSON.parse(JSON.stringify(dv)));else toast('Ce devis est introuvable');}
     if(a==='gofacture'){const f=S.docs.find(x=>x.id===d.factureId);if(f)openEditor(JSON.parse(JSON.stringify(f)));}
     if(a==='avoir'){const av=newDoc('avoir',{clientId:d.clientId,objet:'Avoir sur facture '+d.numero,saisie:d.saisie||'ht',lignes:d.lignes.map(l=>({...l,id:uid()})),factureId:d.id,avoirDe:d.numero,nature:d.nature});openEditor(av);toast('Avoir prérempli avec toutes les lignes. Ajuste les montants si l\'annulation est partielle.');}
-    if(a==='dup'){const n=newDoc(d.type==='avoir'?'facture':d.type,{...evtOf(d),clientId:d.clientId,objet:d.objet,saisie:d.saisie||'ht',lignes:d.lignes.map(l=>({...l,id:uid()})),notes:d.notes,nature:d.nature,...(Array.isArray(d.condsOff)?{condsOff:[...d.condsOff]}:{})});openEditor(n);}
+    if(a==='dup'){const n=newDoc(d.type==='avoir'?'facture':d.type,{...evtOf(d),clientId:d.clientId,objet:d.objet,saisie:d.saisie||'ht',lignes:d.lignes.map(l=>({...l,id:uid()})),notes:d.notes,nature:d.nature,...(d.type==='devis'&&Array.isArray(d.condsOff)?{condsOff:[...d.condsOff]}:{}),...(Array.isArray(d.condsOn)?{condsOn:[...d.condsOn]}:{})});openEditor(n);}
     if(a==='paid')payForm(d);
     if(a==='depot'){if(d.depot&&!await confirmBox('Classer à nouveau ?',`Cette facture a déjà été classée dans Factures FLP le ${fmtDate(String(d.depot.date||'').slice(0,10))}. La classer à nouveau ajoutera une 2ᵉ pièce.`,'Classer à nouveau'))return;depotFLP(d,!!d.depot);}
     if(a==='acompte')acompteForm(d);
@@ -1542,10 +1551,11 @@ function evtLines(d){
   return out;
 }
 function acompteDemande(d){if(d.type!=='devis'||!d.acompteDemande)return null;const pct=+d.acomptePct||30;return {pct,mt:r2(totals(d).ttc*pct/100)};}
-function condAll(){return String(S.settings.conditionsDevis||'').split('\n').map(x=>x.trim()).filter(Boolean);}
+const condFact=d=>!!d&&d.type==='facture'&&Array.isArray(d.condsOn);
+function condAll(d){return String((condFact(d)?S.settings.conditionsFacture:S.settings.conditionsDevis)||'').split('\n').map(x=>x.trim()).filter(Boolean);}
 /* devis : toujours (sauf conditions décochées) ; factures : seulement celles créées avec le choix des conditions */
-function condOn(d){return !!d&&(d.type==='devis'||(d.type==='facture'&&(Array.isArray(d.condsOff)||!d.seq)));}
-function condLines(d){if(d&&!condOn(d))return [];const ac=d&&acompteDemande(d);const off=new Set((d&&d.condsOff)||[]);return condAll().filter(x=>!off.has(x)).filter(x=>!(d&&d.montantFerme===false&&/nombre de participants/i.test(x))).map(x=>ac?x:x.replace(/\s+et de l['’]acompte(?=\s*\.?\s*$)/i,''));}
+function condOn(d){return !!d&&(d.type==='devis'||condFact(d)||(d.type==='facture'&&Array.isArray(d.condsOff)&&!!d.seq));}
+function condLines(d){if(d&&!condOn(d))return [];if(condFact(d)){const on=new Set(d.condsOn);return condAll(d).filter(x=>on.has(x));}const ac=d&&acompteDemande(d);const off=new Set((d&&d.condsOff)||[]);return condAll(d).filter(x=>!off.has(x)).filter(x=>!(d&&d.montantFerme===false&&/nombre de participants/i.test(x))).map(x=>ac?x:x.replace(/\s+et de l['’]acompte(?=\s*\.?\s*$)/i,''));}
 
 /* ---------- remise ---------- */
 function remiseForm(){
