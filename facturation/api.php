@@ -4,6 +4,7 @@ declare(strict_types=1);
 define('FLP', 1);
 require __DIR__ . '/lib.php';
 require __DIR__ . '/depot.php';
+if (is_file(__DIR__ . '/push.php')) require __DIR__ . '/push.php';
 if (is_file(__DIR__ . '/maj.php')) require __DIR__ . '/maj.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -102,23 +103,57 @@ switch ($action) {
             'bcc' => !empty(cfg()['copy_me']) ? [$copy] : [], 'reply_to' => $conf['email'] ?? '']);
         out(['ok' => true, 'payload' => ['sent' => true]]);
     }
+    case 'push_info': {
+        $j = push_load();
+        $dev = []; foreach ($j['subs'] as $id => $x) $dev[] = ['id' => $id, 'nom' => $x['nom'] ?? 'Appareil', 'cree' => $x['cree'] ?? ''];
+        out(['key' => $j['vapid']['pub'], 'appareils' => $dev]);
+    }
+    case 'push_sub': {
+        $sub = $in['sub'] ?? []; $ep = (string)($sub['endpoint'] ?? '');
+        $p = (string)($sub['keys']['p256dh'] ?? ''); $a = (string)($sub['keys']['auth'] ?? '');
+        if (!preg_match('~^https://[a-z0-9.-]+(:\d+)?/~i', $ep) || !preg_match('/^[A-Za-z0-9_-]{80,100}$/', $p) || !preg_match('/^[A-Za-z0-9_-]{16,32}$/', $a)) fail('Abonnement invalide.');
+        $j = push_load(); $id = substr(hash('sha256', $ep), 0, 16);
+        $j['subs'][$id] = ['endpoint' => $ep, 'p256dh' => $p, 'auth' => $a, 'nom' => mb_substr(trim((string)($in['nom'] ?? 'Appareil')), 0, 60) ?: 'Appareil', 'cree' => date('c')];
+        push_save($j);
+        out(['ok' => true, 'id' => $id]);
+    }
+    case 'push_del': {
+        $id = valid_id($in['id'] ?? ''); $j = push_load(); unset($j['subs'][$id]); push_save($j); out(['ok' => true]);
+    }
+    case 'push_test': {
+        $r = push_send('Facturation', 'Les notifications fonctionnent sur cet appareil 👍', base_url(), 'test');
+        out(['ok' => $r['envoyes'] > 0] + $r);
+    }
     case 'entreprises': {
         $q = trim((string)($_GET['q'] ?? ''));
+        if (preg_match('/^[\d\s.]{9,17}$/', $q)) $q = preg_replace('/\D/', '', $q);
         if (mb_strlen($q) < 3) fail('Tape au moins 3 caractères.');
-        $url = 'https://recherche-entreprises.api.gouv.fr/search?per_page=8&q=' . rawurlencode($q);
-        $raw = http_get($url);
-        $j = json_decode((string)$raw, true);
-        if (!is_array($j)) fail("L'annuaire des entreprises ne répond pas. Réessaie dans un instant.", 502);
-        $res = [];
-        foreach ((array)($j['results'] ?? []) as $r) {
-            $s = $r['siege'] ?? [];
-            $adr = trim(implode(' ', array_filter([$s['numero_voie'] ?? '', $s['indice_repetition'] ?? '', $s['type_voie'] ?? '', $s['libelle_voie'] ?? ''])));
-            if ($adr === '' && !empty($s['adresse'])) $adr = preg_replace('/\s*\d{5}\s.*$/', '', $s['adresse']);
-            $siren = (string)($r['siren'] ?? '');
-            $res[] = ['nom' => $r['nom_raison_sociale'] ?? ($r['nom_complet'] ?? ''), 'siren' => $siren, 'tva' => tva_intra($siren),
-                'adresse' => $adr, 'cp' => $s['code_postal'] ?? '', 'ville' => $s['libelle_commune'] ?? '', 'actif' => ($r['etat_administratif'] ?? 'A') === 'A'];
+        $FORMES = ['1000' => 'Entreprise individuelle', '5499' => 'SARL', '5498' => 'EURL', '5710' => 'SAS', '5720' => 'SASU', '5599' => 'SA', '5505' => 'SA', '6540' => 'SCI', '9220' => 'Association', '9210' => 'Association', '7210' => 'Commune', '7220' => 'Département', '7230' => 'Région', '7389' => 'Établissement public', '7490' => 'Établissement public', '5306' => 'SNC', '5202' => 'SNC', '6316' => 'CUMA', '5458' => 'SARL coopérative', '5560' => 'SA coopérative', '5785' => 'SAS coopérative', '6210' => 'GIE'];
+        $seen = []; $res = [];
+        foreach (['&departement=974', ''] as $f) {
+            $raw = http_get('https://recherche-entreprises.api.gouv.fr/search?per_page=8&q=' . rawurlencode($q) . $f);
+            $j = json_decode((string)$raw, true);
+            if (!is_array($j)) { if (!$res && $f === '') fail("L'annuaire des entreprises ne répond pas. Réessaie dans un instant.", 502); continue; }
+            foreach ((array)($j['results'] ?? []) as $r) {
+                $siren = (string)($r['siren'] ?? ''); if ($siren === '' || isset($seen[$siren])) continue; $seen[$siren] = 1;
+                $s = $r['siege'] ?? [];
+                $adr = trim(implode(' ', array_filter([$s['numero_voie'] ?? '', $s['indice_repetition'] ?? '', $s['type_voie'] ?? '', $s['libelle_voie'] ?? ''])));
+                if ($adr === '' && !empty($s['adresse'])) $adr = preg_replace('/\s*\d{5}\s.*$/', '', $s['adresse']);
+                elseif (!empty($s['complement_adresse'])) $adr = trim($s['complement_adresse']) . ', ' . $adr;
+                $dir = ''; $qual = '';
+                foreach ((array)($r['dirigeants'] ?? []) as $p) {
+                    if (($p['type_dirigeant'] ?? '') !== 'personne physique' || preg_match('/commissaire/i', (string)($p['qualite'] ?? ''))) continue;
+                    $pr = explode(' ', trim((string)($p['prenoms'] ?? '')))[0] ?? '';
+                    $dir = trim(mb_convert_case($pr, MB_CASE_TITLE) . ' ' . mb_convert_case((string)($p['nom'] ?? ''), MB_CASE_TITLE)); $qual = (string)($p['qualite'] ?? ''); break;
+                }
+                $nj = (string)($r['nature_juridique'] ?? '');
+                $res[] = ['nom' => $r['nom_raison_sociale'] ?? ($r['nom_complet'] ?? ''), 'siren' => $siren, 'tva' => in_array($nj, ['9220', '9210'], true) ? '' : tva_intra($siren),
+                    'adresse' => $adr, 'cp' => $s['code_postal'] ?? '', 'ville' => $s['libelle_commune'] ?? '', 'actif' => ($r['etat_administratif'] ?? 'A') === 'A',
+                    'forme' => $FORMES[$nj] ?? '', 'contact' => $dir, 'dirigeant' => $dir ? $dir . (!empty($qual) ? ' (' . $qual . ')' : '') : ''];
+            }
+            if (count($res) >= 8) break;
         }
-        out(['results' => $res]);
+        out(['results' => array_slice($res, 0, 10)]);
     }
     case 'depot': {
         $id = valid_id($in['id'] ?? '');

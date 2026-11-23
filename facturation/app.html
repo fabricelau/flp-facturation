@@ -440,6 +440,44 @@ async function remove(col,id){
   if(S.db)await S.db.collection(col).doc(id).delete();
   else{S[key]=S[key].filter(x=>x.id!==id);render();}
 }
+/* ---------- notifications (Web Push) ---------- */
+const pushApi=(a,body)=>fetch(window.GPF.rest+a,body?{method:'POST',credentials:'same-origin',headers:{'X-CSRF':window.GPF.nonce,'Content-Type':'application/json'},body:JSON.stringify(body)}:{credentials:'same-origin'}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.message||'Erreur');return j;});
+const u8=b=>{const s=atob((b+'='.repeat((4-b.length%4)%4)).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(s,c=>c.charCodeAt(0));};
+const isIOS=()=>/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+const standalone=()=>(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||navigator.standalone===true;
+function deviceName(){const u=navigator.userAgent;return /iPhone/.test(u)?'iPhone':/iPad/.test(u)||isIOS()?'iPad':/Android/.test(u)?'Android':/Mac/.test(u)?'Mac':/Windows/.test(u)?'PC Windows':'Appareil';}
+if(HOSTED&&'serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+async function pushPanel(v){
+  const box=$('#push-state',v);
+  const setPref=(id,k)=>{const c=$('#'+id,v);c.addEventListener('change',()=>safe(()=>putSettings({...S.settings,[k]:c.checked}),'Réglage enregistré').catch(()=>{}));};
+  setPref('nt-ouvert','notifDevisOuvert');setPref('nt-accepte','notifDevisAccepte');
+  let info;try{info=await pushApi('push_info');}catch(e){box.textContent="Les notifications ne sont pas disponibles pour l'instant ("+e.message+').';return;}
+  const supported='serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window;
+  let mine=null;if(supported){try{const reg=await navigator.serviceWorker.ready;const sub=await reg.pushManager.getSubscription();if(sub){const hx=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(sub.endpoint)))].map(b=>b.toString(16).padStart(2,'0')).join('').slice(0,16);if((info.appareils||[]).some(d=>d.id===hx))mine=sub;}}catch(e){}}
+  const devs=info.appareils||[];
+  let h='';
+  if(devs.length)h+=`<div style="display:flex;flex-direction:column;gap:6px">${devs.map(d=>`<div class="row" style="justify-content:space-between;border:1px solid var(--line);border-radius:8px;padding:8px 10px"><span><b>${esc(d.nom)}</b> <small class="muted">activé le ${esc(fmtDate(String(d.cree).slice(0,10)))}</small></span><button class="btn ghost sm" data-pdel="${esc(d.id)}">Retirer</button></div>`).join('')}</div>`;
+  else h+=`<span>Aucun appareil n'est encore activé.</span>`;
+  if(!supported){
+    h+=isIOS()&&!standalone()?`<span style="font-size:14px;color:var(--ink)"><b>Sur iPhone, il faut d'abord installer l'appli</b> (voir « L'appli sur ton téléphone » ci-dessus), puis l'ouvrir <b>depuis l'icône Facturation</b> de ton écran d'accueil, revenir ici dans Réglages et toucher « Activer les notifications ».</span>`
+      :`<span style="font-size:14px">Ce navigateur ne gère pas les notifications. Sur iPhone, mets iOS à jour (16.4 ou plus récent) et utilise l'appli installée.</span>`;
+  }else if(Notification.permission==='denied'){
+    h+=`<span style="font-size:14px;color:var(--c-orange)">Les notifications sont bloquées pour cette appli. Sur iPhone : <b>Réglages › Notifications › Facturation</b> › Autoriser les notifications, puis reviens ici.</span>`;
+  }else if(!mine){h+=`<div class="row"><button class="btn primary" id="push-on">Activer les notifications sur ce ${esc(deviceName())}</button></div>`;}
+  else h+=`<span style="color:var(--ok);font-weight:600">✓ Les notifications sont activées sur cet appareil.</span>`;
+  if(devs.length)h+=`<div class="row"><button class="btn" id="push-test">Envoyer une notification de test</button></div>`;
+  box.className='';box.style.cssText='display:flex;flex-direction:column;gap:10px';box.innerHTML=h;
+  const on=$('#push-on',v);if(on)on.addEventListener('click',async()=>{on.disabled=true;on.textContent='Activation…';
+    try{const perm=await Notification.requestPermission();if(perm!=='granted'){toast('Autorisation refusée : les notifications restent désactivées');pushPanel(v);return;}
+      const reg=await navigator.serviceWorker.register('sw.js');await navigator.serviceWorker.ready;
+      const sub=(await reg.pushManager.getSubscription())||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:u8(info.key)});
+      await pushApi('push_sub',{sub:sub.toJSON(),nom:deviceName()});toast('Notifications activées');
+      try{await pushApi('push_test',{});}catch(e){}
+    }catch(e){toast("L'activation n'a pas abouti : "+(e.message||e));}
+    pushPanel(v);});
+  const te=$('#push-test',v);if(te)te.addEventListener('click',async()=>{te.disabled=true;try{const r=await pushApi('push_test',{});toast(r.envoyes?`Notification envoyée à ${r.envoyes} appareil${r.envoyes>1?'s':''}`:"La notification n'est pas partie : réactive les notifications sur ton téléphone");}catch(e){toast(e.message);}te.disabled=false;pushPanel(v);});
+  $$('[data-pdel]',v).forEach(b=>b.addEventListener('click',async()=>{try{await pushApi('push_del',{id:b.dataset.pdel});toast('Appareil retiré');}catch(e){toast(e.message);}pushPanel(v);}));
+}
 async function putSettings(data){
   if(S.db)await S.db.doc('config/entreprise').set({...data});
   else{S.settings={...DEFAULT_SETTINGS,...data};render();}
@@ -840,6 +878,12 @@ function vParams(){
     <span style="font-size:14px"><b>Sur iPhone</b> (avec Safari) : touche le bouton <b>Partager</b> (carré avec une flèche vers le haut), puis <b>« Sur l'écran d'accueil »</b>, puis <b>Ajouter</b>.</span>
     <span style="font-size:14px"><b>Sur Android</b> (avec Chrome) : touche le menu <b>⋮</b> en haut à droite, puis <b>« Installer l'application »</b> ou <b>« Ajouter à l'écran d'accueil »</b>.</span>`}
   </div></div>`:''}
+  ${HOSTED?`<div class="panel"><div class="sec-title">Notifications sur ton téléphone</div><div class="body" style="padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px" id="push-box">
+    <span class="muted" style="font-size:14px">Reçois une alerte sur ton téléphone quand un client ouvre ou accepte un devis, même quand l'appli est fermée.</span>
+    <label class="cond-opt"><input type="checkbox" id="nt-ouvert" ${S.settings.notifDevisOuvert===false?'':'checked'}><span>Un client <b>ouvre</b> son devis (au plus une alerte toutes les 12 h par devis)</span></label>
+    <label class="cond-opt"><input type="checkbox" id="nt-accepte" ${S.settings.notifDevisAccepte===false?'':'checked'}><span>Un client <b>accepte</b> son devis en ligne</span></label>
+    <div id="push-state" class="muted" style="font-size:14px">Chargement…</div>
+  </div></div>`:''}
   ${HOSTED?`<div class="panel"><div class="sec-title">Mises à jour</div><div class="body" style="padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px">
     <span class="muted" style="font-size:14px">L'outil se met à jour tout seul depuis GitHub (au plus tard 15 minutes après une nouvelle version, quand tu l'ouvres). Tes données ne sont jamais touchées, et l'ancienne version est gardée.</span>
     <span id="maj-etat" style="font-size:14px">…</span>
@@ -898,6 +942,7 @@ function bindView(v){
     $('#export-csv',v).addEventListener('click',exportCsv);
     $('#bk-export',v).addEventListener('click',exportBackup);
     const pi=$('#pwa-install',v);if(pi)pi.addEventListener('click',async()=>{const ev=S.installPrompt;if(!ev)return;S.installPrompt=null;try{ev.prompt();const r=await ev.userChoice;toast(r&&r.outcome==='accepted'?'Appli installée':'Installation annulée');}catch(e){}render();});
+    if(HOSTED&&$('#push-state',v))pushPanel(v);
     if(HOSTED&&$('#maj-etat',v)){const me=$('#maj-etat',v);const show=j=>{const c=j.check||{};me.innerHTML=`Version installée : <b>${esc(j.version||'d\'origine')}</b>${c.ok?(c.up_to_date?' · <span style="color:var(--ok)">à jour</span>':' · nouvelle version disponible : <b>'+esc(c.latest)+'</b>'):(c.msg?' · '+esc(c.msg):'')}${j.dernier?'<br><span class="muted">Dernière mise à jour automatique : '+esc(new Date(j.dernier.quand).toLocaleString('fr-FR'))+' — '+esc(j.dernier.msg)+'</span>':''}`;};
       fetch(window.GPF.rest+'maj',{credentials:'same-origin'}).then(r=>r.json()).then(show).catch(()=>{me.textContent='Impossible de vérifier pour l\'instant.';});
       $('#maj-go',v).addEventListener('click',async e=>{const b=e.currentTarget;b.disabled=true;b.textContent='Mise à jour…';try{const r=await fetch(window.GPF.rest+'maj',{method:'POST',credentials:'same-origin',headers:{'X-CSRF':window.GPF.nonce,'Content-Type':'application/json'},body:'{}'});const j=await r.json();toast(j.msg||j.message||'Terminé');if(r.ok&&/install/.test(j.msg||''))setTimeout(()=>location.reload(),1200);else{b.disabled=false;b.textContent='Vérifier et installer maintenant';show({...(j.etat||{}),check:{ok:r.ok,up_to_date:r.ok,msg:r.ok?'':j.msg}});}}catch(err){toast('Mise à jour impossible');b.disabled=false;b.textContent='Vérifier et installer maintenant';}});}
@@ -925,23 +970,25 @@ function clientForm(c,dup){
     ${dup?`<div class="banner" style="margin:14px 16px 0;font-size:13px"><span>Copie de <b>${esc(dup._de)}</b> : modifie ce qui change (nom, contact, e-mail…) puis enregistre. Le client d'origine ne change pas.</span></div>`:''}
     <div class="form">
       <div class="field full"><label>Type</label><div class="seg" id="c-type"><button data-v="particulier" class="${x.type!=='pro'?'on':''}">Particulier</button><button data-v="pro" class="${x.type==='pro'?'on':''}">Professionnel</button></div></div>
-      ${HOSTED?`<div class="field full for-pro"><label for="c-search">Rechercher l'entreprise (nom ou SIREN)</label><div class="row" style="flex-wrap:nowrap"><input type="text" id="c-search" placeholder="Ex. GB GLOBAL ou 988176129" autocomplete="off"><button class="btn" type="button" id="c-search-go">Rechercher</button></div><span class="hint">Les informations officielles se remplissent toutes seules depuis l'annuaire des entreprises.</span><div id="c-results" class="co-results"></div></div>`:''}
+      ${HOSTED?`<div class="field full for-pro"><label for="c-search">Rechercher l'entreprise (nom ou SIREN)</label><div class="row" style="flex-wrap:nowrap"><input type="text" id="c-search" placeholder="Ex. GB GLOBAL ou 988176129" autocomplete="off" value="${c&&!c.siren&&c.type==='pro'?esc(c.nom||''):''}"><button class="btn" type="button" id="c-search-go">Rechercher</button></div><span class="hint">Tape le nom ou le SIREN : les entreprises de La Réunion s'affichent en premier. Touche la bonne et l'adresse, le SIREN, le n° de TVA et le dirigeant se remplissent tout seuls.</span><div id="c-results" class="co-results"></div></div>`:''}
       ${f('prenom','Prénom','text','for-part')}${f('nomFamille','Nom','text','for-part')}
       ${f('nom','Raison sociale','text','full for-pro')}${f('contact','Personne à contacter (facultatif)','text','for-pro')}${f('siren','SIREN','text','for-pro')}
       ${f('adresse','Adresse','text','full')}${f('cp','Code postal')}${f('ville','Ville')}${f('email','E-mail','email')}${f('tel','Téléphone','tel')}${f('tvaIntra','N° TVA intracommunautaire (facultatif)','text','full for-pro')}
       <div class="field full"><label>Autres e-mails (facultatif)</label><span class="hint">Ajoute d'autres personnes chez ce client : tu choisiras à qui envoyer au moment de l'envoi.</span><div id="c-mails" class="xm-list"></div><button type="button" class="btn sm" data-a="addmail" style="align-self:flex-start">+ Ajouter un e-mail</button></div>
     </div>
     <div class="foot">${c?`<button class="btn danger" data-a="del" style="margin-right:auto">Supprimer</button>`:''}<button class="btn" data-a="close">Annuler</button><button class="btn primary" data-a="save">Enregistrer</button></div>`,dl=>{
-      const sgo=$('#c-search-go',dl);if(sgo){const run=async()=>{const q=$('#c-search',dl).value.trim();const box=$('#c-results',dl);if(q.length<3){box.innerHTML='<span class="hint">Tape au moins 3 caractères.</span>';return;}
+      const sgo=$('#c-search-go',dl);if(sgo){let seq=0;const run=async()=>{const q=$('#c-search',dl).value.trim();const box=$('#c-results',dl);const my=++seq;if(q.length<3){box.innerHTML=q?'<span class="hint">Tape au moins 3 caractères.</span>':'';return;}
         box.innerHTML='<span class="hint">Recherche…</span>';
         try{const r=await fetch(window.GPF.rest+'entreprises?q='+encodeURIComponent(q),{credentials:'same-origin',headers:{'X-CSRF':window.GPF.nonce}});const j=await r.json();if(!r.ok)throw new Error(j.message||'Erreur');
-          const res=j.results||[];if(!res.length){box.innerHTML='<span class="hint">Aucune entreprise trouvée. Vérifie l\'orthographe ou le SIREN.</span>';return;}
-          box.innerHTML=res.map((c,i)=>`<button type="button" class="co-item" data-co="${i}"><b>${esc(c.nom)}</b>${c.actif?'':' <span class="pill p-bad">Fermée</span>'}<small>SIREN ${esc(c.siren)} · ${esc(titleCase([c.adresse,[c.cp,titleCase(c.ville)].filter(Boolean).join(' ')].filter(Boolean).join(', ')))}</small></button>`).join('');
+          if(my!==seq)return;const res=j.results||[];if(!res.length){box.innerHTML='<span class="hint">Aucune entreprise trouvée. Vérifie l\'orthographe ou le SIREN.</span>';return;}
+          box.innerHTML=res.map((c,i)=>`<button type="button" class="co-item" data-co="${i}"><b>${esc(c.nom)}</b>${c.actif?'':' <span class="pill p-bad">Fermée</span>'}<small>${esc([c.forme,'SIREN '+c.siren].filter(Boolean).join(' · '))} · ${esc(titleCase([c.adresse,[c.cp,titleCase(c.ville)].filter(Boolean).join(' ')].filter(Boolean).join(', ')))}</small>${c.dirigeant?`<small>${esc(c.dirigeant)}</small>`:''}</button>`).join('');
           $$('[data-co]',box).forEach(b=>b.addEventListener('click',()=>{const c=res[+b.dataset.co];const set=(k,v)=>{const i=$('#c-'+k,dl);if(i&&v)i.value=v;};
-            set('nom',c.nom);set('siren',c.siren);set('tvaIntra',c.tva);set('adresse',titleCase(c.adresse));set('cp',c.cp);set('ville',titleCase(c.ville));
-            box.innerHTML=`<span class="hint" style="color:var(--ok)">✓ Informations remplies depuis l'annuaire. Ajoute l'e-mail et le téléphone.</span>`;if(!c.actif)toast('Attention : cette entreprise est indiquée comme fermée.');}));
+            const ci=$('#c-contact',dl);const hadContact=ci&&ci.value.trim();
+            set('nom',c.nom);set('siren',c.siren);set('tvaIntra',c.tva);set('adresse',titleCase(c.adresse));set('cp',c.cp);set('ville',titleCase(c.ville));if(!hadContact&&c.contact)set('contact',c.contact);
+            box.innerHTML=`<span class="hint" style="color:var(--ok)">✓ Informations remplies depuis l'annuaire${!hadContact&&c.contact?' (contact : le dirigeant, à changer si besoin)':''}.${$('#c-email',dl)&&!$('#c-email',dl).value?" Ajoute l'e-mail et le téléphone.":''}</span>`;if(!c.actif)toast('Attention : cette entreprise est indiquée comme fermée.');}));
         }catch(e){box.innerHTML=`<span class="hint" style="color:var(--danger)">${esc(e.message||"La recherche n'a pas abouti.")}</span>`;}};
-        sgo.addEventListener('click',run);$('#c-search',dl).addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();run();}});}
+        sgo.addEventListener('click',run);let tm;const si=$('#c-search',dl);si.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();clearTimeout(tm);run();}});
+        si.addEventListener('input',()=>{clearTimeout(tm);tm=setTimeout(run,450);});if(si.value.trim().length>=3&&x.type==='pro')run();}
       const mrow=(m={})=>`<div class="xm-row"><input type="text" class="xm-nom" placeholder="Nom (ex. Compta)" value="${esc(m.nom||'')}"><input type="email" class="xm-mail" placeholder="adresse@client.fr" value="${esc(m.email||'')}"><button type="button" class="btn ghost sm" data-a="delmail" aria-label="Retirer">${ICON.x}</button></div>`;
       $('#c-mails',dl).innerHTML=(x.emails||[]).map(mrow).join('');
       const showType=()=>{$$('.for-part',dl).forEach(el=>el.hidden=x.type==='pro');$$('.for-pro',dl).forEach(el=>el.hidden=x.type!=='pro');};showType();
