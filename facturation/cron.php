@@ -7,4 +7,5 @@ header('Content-Type: text/plain; charset=utf-8');
 $key = PHP_SAPI === 'cli' ? ($argv[1] ?? '') : (string)($_GET['cle'] ?? '');
 if (!installed() || !hash_equals((string)(cfg()['cron_key'] ?? ''), $key)) { http_response_code(403); echo "Clé invalide\n"; exit; }
 $sent = run_daily(true);
+if (is_file(__DIR__ . '/dropbox.php')) { require __DIR__ . '/dropbox.php'; dbx_auto(); }
 echo $sent ? 'Relances envoyées : ' . implode(', ', $sent) . "\n" : "Aucune relance à envoyer aujourd'hui.\n";

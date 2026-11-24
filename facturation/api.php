@@ -5,6 +5,7 @@ define('FLP', 1);
 require __DIR__ . '/lib.php';
 require __DIR__ . '/depot.php';
 if (is_file(__DIR__ . '/push.php')) require __DIR__ . '/push.php';
+if (is_file(__DIR__ . '/dropbox.php')) require __DIR__ . '/dropbox.php';
 if (is_file(__DIR__ . '/maj.php')) require __DIR__ . '/maj.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -42,7 +43,7 @@ switch ($action) {
         $d = db_read();
         $o = ['version' => $d['version'], 'config' => ['entreprise' => $d['config']['entreprise'] ?? null], 'relances' => $sent];
         foreach (COLLECTIONS as $c) { $o[$c] = []; foreach ($d[$c] as $id => $v) $o[$c][] = ['id' => (string)$id, 'data' => $v]; }
-        if (function_exists('maj_auto')) register_shutdown_function(function () { if (function_exists('litespeed_finish_request')) litespeed_finish_request(); elseif (function_exists('fastcgi_finish_request')) fastcgi_finish_request(); try { maj_auto(); } catch (Throwable $e) { error_log('Mise à jour : ' . $e->getMessage()); } });
+        if (function_exists('maj_auto')) register_shutdown_function(function () { if (function_exists('litespeed_finish_request')) litespeed_finish_request(); elseif (function_exists('fastcgi_finish_request')) fastcgi_finish_request(); try { maj_auto(); } catch (Throwable $e) { error_log('Mise à jour : ' . $e->getMessage()); } try { if (function_exists('dbx_auto')) dbx_auto(); } catch (Throwable $e) { error_log('Dropbox : ' . $e->getMessage()); } });
         out($o);
     }
     case 'version':
@@ -103,6 +104,19 @@ switch ($action) {
             'bcc' => !empty(cfg()['copy_me']) ? [$copy] : [], 'reply_to' => $conf['email'] ?? '']);
         out(['ok' => true, 'payload' => ['sent' => true]]);
     }
+    case 'dbx_info': out(dbx_etat());
+    case 'dbx_key': {
+        $k = trim((string)($in['app_key'] ?? ''));
+        if (!preg_match('/^[a-z0-9]{10,20}$/', $k)) fail('Cette clé d’appli Dropbox ne semble pas valide (une quinzaine de lettres et chiffres, rubrique « App key »).');
+        $j = dbx_load(); if (($j['app_key'] ?? '') !== $k) $j = ['app_key' => $k]; dbx_save($j);
+        out(['ok' => true, 'url' => dbx_auth_url()]);
+    }
+    case 'dbx_connect': {
+        if (empty(dbx_load()['app_key'])) fail('Enregistre d’abord la clé de ton appli Dropbox.');
+        out(['url' => dbx_auth_url()]);
+    }
+    case 'dbx_now': { $r = dbx_backup(true); out($r + ['etat' => dbx_etat()], $r['ok'] ? 200 : 502); }
+    case 'dbx_off': { $j = dbx_load(); dbx_save(['app_key' => $j['app_key'] ?? '']); out(['ok' => true, 'etat' => dbx_etat()]); }
     case 'push_info': {
         $j = push_load();
         $dev = []; foreach ($j['subs'] as $id => $x) $dev[] = ['id' => $id, 'nom' => $x['nom'] ?? 'Appareil', 'cree' => $x['cree'] ?? ''];
