@@ -111,6 +111,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .p-warn{background:var(--warn-soft);color:var(--warn)}
 .p-bad{background:var(--danger-soft);color:var(--danger)}
 .p-acc{background:var(--accent-soft);color:var(--accent)}
+.p-chorus{background:var(--t-yellow,#FAF0D9);color:var(--c-yellow,#C98A12)}.pills{display:inline-flex;gap:5px;flex-wrap:wrap;align-items:center}
 
 .todo{display:flex;flex-direction:column}
 .todo button{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:11px 16px;border:0;border-bottom:1px solid var(--line);background:none;cursor:pointer;text-align:left;width:100%}
@@ -549,7 +550,10 @@ const STAT={
   facture:{brouillon:['Brouillon','p-draft'],emise:['À encaisser','p-sent'],retard:['En retard','p-warn'],payee:['Payée','p-ok'],avoiree:['Annulée (avoir)','p-draft']},
   avoir:{brouillon:['Brouillon','p-draft'],emis:['Émis','p-acc']}
 };
-const pill=d=>{const [l,c]=(STAT[d.type]||{})[statusOf(d)]||['—','p-draft'];return `<span class="pill ${c}">${l}</span>`;};
+const engagementOf=d=>{if(!d||d.type!=='facture')return '';if(String(d.engagement||'').trim())return String(d.engagement).trim();const m=/n[°o]?\s*(?:d['’]\s*)?engagement\s*[:：]?\s*([A-Z0-9][A-Z0-9\/_.-]{2,})/i.exec([d.objet,d.notes].filter(Boolean).join('\n'));return m?m[1]:'';};
+const isChorus=d=>!!engagementOf(d);
+const chorusLine=d=>d&&d.type==='facture'&&(String(d.engagement||'').trim()||String(d.codeService||'').trim())?[String(d.engagement||'').trim()?"N° d'engagement : "+String(d.engagement).trim():'',String(d.codeService||'').trim()?'Code service : '+String(d.codeService).trim():''].filter(Boolean).join('   ·   '):'';
+const pill=d=>{const [l,c]=(STAT[d.type]||{})[statusOf(d)]||['—','p-draft'];const st=`<span class="pill ${c}">${l}</span>`;return isChorus(d)?`<span class="pills">${st}<span class="pill p-chorus" title="Facture Chorus Pro : n° d'engagement ${esc(engagementOf(d))}">Chorus</span></span>`:st;};
 const TYPE_LBL={devis:'Devis',facture:'Facture',avoir:'Avoir'};
 async function exportBackup(){
   if(!S.dl){toast("Le téléchargement n'est pas disponible dans cette vue.");return;}
@@ -1057,6 +1061,8 @@ function formHtml(d){
   return `<div class="panel"><div class="form">
     <div class="field full"><label for="e-client">Client</label><div class="row" style="flex-wrap:nowrap"><select id="e-client"><option value="">Choisir un client…</option>${cl.map(c=>`<option value="${c.id}" ${c.id===d.clientId?'selected':''}>${esc(c.nom)}</option>`).join('')}</select><button class="btn" id="e-newclient">+ Nouveau</button></div></div>
     <div class="field full"><label for="e-objet">Objet</label><input type="text" id="e-objet" data-f="objet" value="${esc(d.objet)}" placeholder="Ex. Rénovation salle de bain"></div>
+    ${d.type==='facture'?`<div class="field"><label for="e-engagement">N° d'engagement (Chorus Pro)</label><input type="text" id="e-engagement" data-f="engagement" value="${esc(d.engagement||'')}" placeholder="Facultatif — bon de commande public" autocomplete="off"></div>
+    <div class="field"><label for="e-codeService">Code service (Chorus Pro)</label><input type="text" id="e-codeService" data-f="codeService" value="${esc(d.codeService||'')}" placeholder="Facultatif" autocomplete="off"></div>`:''}
     ${d.test&&!d.numero&&d.type!=='avoir'?`<div class="field full"><label for="e-numeroTest">Numéro (mode test)</label><input type="text" id="e-numeroTest" data-f="numeroTest" value="${esc(d.numeroTest||'')}" placeholder="Automatique : ${esc(makeNumero(d.type,nextSeq(d.type),d.date||today()))}"><span class="hint">Laisse vide pour la numérotation automatique, ou tape le numéro de ton choix (ex. 0630). Ça ne touche pas à la numérotation de tes vraies factures.</span></div>`:''}
     <div class="field"><label for="e-date">Date</label><input type="date" id="e-date" data-f="date" value="${esc(d.date)}"></div>
     ${d.type==='devis'?`<div class="field"><label for="e-validite">Valable jusqu'au</label><input type="date" id="e-validite" data-f="validite" value="${esc(d.validite)}"></div>`:''}
@@ -1311,6 +1317,7 @@ function paperHtml(d){
    <div class="pp-title"><h4>${ttl}</h4><div class="n">${esc(d.numero||(d.test&&String(d.numeroTest||'').trim())||'N° attribué à l\'émission')}</div><div>Date : ${fmtDate(d.date)}</div>${d.type==='facture'?`<div>Échéance : ${fmtDate(d.echeance)}</div>`:''}${d.type==='devis'?`<div>Validité : ${fmtDate(d.validite)}</div>`:''}</div></div>
    <div class="pp-cl"><b>${esc(c?c.nom:'Client')}</b><br>${clLines(c).map(esc).join('<br>')}</div>
    ${d.objet?`<p class="pp-obj"><b>Objet :</b> ${esc(d.objet)}</p>`:''}
+   ${chorusLine(d)?`<p class="pp-obj">${esc(chorusLine(d))}</p>`:''}
    ${evtLines(d).length?`<div class="pp-evt">${evtLines(d).map(x=>`<div>${esc(x)}</div>`).join('')}</div>`:''}
    <table><thead><tr><th>Désignation</th><th class="r">Qté</th><th class="r">${ttcCols(d)?'PU TTC':'PU HT'}</th>${fr?'':'<th class="r">TVA</th>'}<th class="r">${ttcCols(d)?'Total TTC':'Total HT'}</th>${extraTTC(d)?'<th class="r">Total TTC</th>':''}</tr></thead><tbody>
    ${lines.length?lines.map(l=>`<tr><td>${esc(l.designation)}${l.details?`<small>${esc(l.details).replace(/\n/g,'<br>')}</small>`:''}</td><td class="r">${fmtNum(+l.qte||0,(+l.qte%1)?2:0)} ${esc(l.unite)}</td><td class="r">${fmtNum(ttcCols(d)?+l.puTTC||0:puHT(l,d))}</td>${fr?'':`<td class="r">${fmtTaux(l.tva)}</td>`}<td class="r">${fmtNum(ttcCols(d)?lineTTC(l,d):lineHT(l,d))}</td>${extraTTC(d)?`<td class="r">${fmtNum(lineTTC(l,d))}</td>`:''}</tr>`).join(''):`<tr><td colspan="5" style="color:var(--paper-muted)">Ajoute des lignes…</td></tr>`}
@@ -1354,7 +1361,9 @@ function buildPdf(d,fx){
   p.setDrawColor(...LINE);p.roundedRect(cx,y,W-M-cx,ch,1.5,1.5);
   txt(c?c.nom:'',cx+4,y+6,{b:1,s:10});cl.forEach((l,i)=>txt(l,cx+4,y+11+i*4.2,{c:MUT,s:8.5}));
   y+=ch+8;
+  const chl=chorusLine(d);
   if(d.objet){p.setFont(FF,'bold');p.setFontSize(9.5);p.setTextColor(...INK);p.text('Objet :',M,y);const w=p.getTextWidth('Objet :')+1.8;p.setFont(FF,'normal');p.text(p.splitTextToSize(d.objet,W-2*M-w),M+w,y);y+=7;}
+  if(chl){p.setFont(FF,'normal');p.setFontSize(9.5);p.setTextColor(...INK);p.text(chl,M,y);y+=7;}
   const ev=evtLines(d);if(ev.length){const lines=[];p.setFontSize(9);ev.forEach(x=>lines.push(...p.splitTextToSize(x,W-2*M-6)));p.setDrawColor(...ACC);p.setLineWidth(.8);p.line(M,y-3.5,M,y-3.5+lines.length*4.4);p.setLineWidth(.2);p.setFont(FF,'normal');p.setTextColor(...INK);p.text(lines,M+4,y);y+=lines.length*4.4+4;}
   const TC=ttcCols(d),PUL=TC?'PU TTC':'PU HT',TOL=TC?'Total TTC':'Total HT';
   const XT=extraTTC(d);
@@ -1492,7 +1501,7 @@ function fxXml(d){
 <rsm:CrossIndustryInvoice xmlns:rsm="urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100" xmlns:qdt="urn:un:unece:uncefact:data:standard:QualifiedDataType:100" xmlns:ram="urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100" xmlns:udt="urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100">
 <rsm:ExchangedDocumentContext><ram:GuidelineSpecifiedDocumentContextParameter><ram:ID>urn:cen.eu:en16931:2017</ram:ID></ram:GuidelineSpecifiedDocumentContextParameter></rsm:ExchangedDocumentContext>
 <rsm:ExchangedDocument><ram:ID>${xe(d.numero)}</ram:ID><ram:TypeCode>${type}</ram:TypeCode><ram:IssueDateTime><udt:DateTimeString format="102">${fxD(d.date)}</udt:DateTimeString></ram:IssueDateTime>${notes.map(([x,code])=>`<ram:IncludedNote><ram:Content>${xe(x)}</ram:Content>${code?`<ram:SubjectCode>${code}</ram:SubjectCode>`:''}</ram:IncludedNote>`).join('')}</rsm:ExchangedDocument>
-<rsm:SupplyChainTradeTransaction>${lines.join('')}<ram:ApplicableHeaderTradeAgreement>${seller}${buyer}${devisRef?`<ram:ContractReferencedDocument><ram:IssuerAssignedID>${xe(devisRef)}</ram:IssuerAssignedID></ram:ContractReferencedDocument>`:''}</ram:ApplicableHeaderTradeAgreement><ram:ApplicableHeaderTradeDelivery>${d.evtDate?`<ram:ActualDeliverySupplyChainEvent><ram:OccurrenceDateTime><udt:DateTimeString format="102">${fxD(d.evtDate)}</udt:DateTimeString></ram:OccurrenceDateTime></ram:ActualDeliverySupplyChainEvent>`:''}</ram:ApplicableHeaderTradeDelivery><ram:ApplicableHeaderTradeSettlement>${d.type!=='avoir'?`<ram:PaymentReference>${xe(d.numero)}</ram:PaymentReference>`:''}<ram:InvoiceCurrencyCode>EUR</ram:InvoiceCurrencyCode>${pm}${taxes}${terms}<ram:SpecifiedTradeSettlementHeaderMonetarySummation><ram:LineTotalAmount>${fxA(lineSum)}</ram:LineTotalAmount><ram:TaxBasisTotalAmount>${fxA(t.ht)}</ram:TaxBasisTotalAmount><ram:TaxTotalAmount currencyID="EUR">${fxA(fr?0:t.tva)}</ram:TaxTotalAmount><ram:GrandTotalAmount>${fxA(t.ttc)}</ram:GrandTotalAmount><ram:DuePayableAmount>${fxA(t.ttc)}</ram:DuePayableAmount></ram:SpecifiedTradeSettlementHeaderMonetarySummation>${ref}</ram:ApplicableHeaderTradeSettlement></rsm:SupplyChainTradeTransaction>
+<rsm:SupplyChainTradeTransaction>${lines.join('')}<ram:ApplicableHeaderTradeAgreement>${d.type==='facture'&&String(d.codeService||'').trim()?`<ram:BuyerReference>${xe(String(d.codeService).trim())}</ram:BuyerReference>`:''}${seller}${buyer}${String(d.engagement||'').trim()?`<ram:BuyerOrderReferencedDocument><ram:IssuerAssignedID>${xe(String(d.engagement).trim())}</ram:IssuerAssignedID></ram:BuyerOrderReferencedDocument>`:''}${devisRef?`<ram:ContractReferencedDocument><ram:IssuerAssignedID>${xe(devisRef)}</ram:IssuerAssignedID></ram:ContractReferencedDocument>`:''}</ram:ApplicableHeaderTradeAgreement><ram:ApplicableHeaderTradeDelivery>${d.evtDate?`<ram:ActualDeliverySupplyChainEvent><ram:OccurrenceDateTime><udt:DateTimeString format="102">${fxD(d.evtDate)}</udt:DateTimeString></ram:OccurrenceDateTime></ram:ActualDeliverySupplyChainEvent>`:''}</ram:ApplicableHeaderTradeDelivery><ram:ApplicableHeaderTradeSettlement>${d.type!=='avoir'?`<ram:PaymentReference>${xe(d.numero)}</ram:PaymentReference>`:''}<ram:InvoiceCurrencyCode>EUR</ram:InvoiceCurrencyCode>${pm}${taxes}${terms}<ram:SpecifiedTradeSettlementHeaderMonetarySummation><ram:LineTotalAmount>${fxA(lineSum)}</ram:LineTotalAmount><ram:TaxBasisTotalAmount>${fxA(t.ht)}</ram:TaxBasisTotalAmount><ram:TaxTotalAmount currencyID="EUR">${fxA(fr?0:t.tva)}</ram:TaxTotalAmount><ram:GrandTotalAmount>${fxA(t.ttc)}</ram:GrandTotalAmount><ram:DuePayableAmount>${fxA(t.ttc)}</ram:DuePayableAmount></ram:SpecifiedTradeSettlementHeaderMonetarySummation>${ref}</ram:ApplicableHeaderTradeSettlement></rsm:SupplyChainTradeTransaction>
 </rsm:CrossIndustryInvoice>`;
 }
 function fxXmp(m){
