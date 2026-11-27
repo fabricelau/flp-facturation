@@ -843,7 +843,13 @@ function docRow(d){
     <span class="c-st">${pill(d)}</span></button>`;
 }
 function listHead(){return `<div class="li hd"><span>Numéro</span><span>Client · objet</span><span>Date</span><span class="r">Montant TTC</span><span>Statut</span></div>`;}
-function sortDocs(a){return [...a].sort((x,y)=>(y.date||'').localeCompare(x.date||'')||(y.seq||1e9)-(x.seq||1e9)||(y.createdAt||'').localeCompare(x.createdAt||''));}
+function sortDocs(a){
+  const r=[...a].sort((x,y)=>(y.date||'').localeCompare(x.date||'')||(y.seq||1e9)-(x.seq||1e9)||(y.createdAt||'').localeCompare(x.createdAt||''));
+  /* documents émis : toujours dans l'ordre des numéros (les vieilles factures n'ont pas toujours des dates dans l'ordre) */
+  const groups={};r.forEach((d,i)=>{if(d.seq){const k=d.type+(d.test?':t':'');(groups[k]=groups[k]||[]).push(i);}});
+  for(const k in groups){const idx=groups[k];const docs=idx.map(i=>r[i]).sort((x,y)=>(+y.seq||0)-(+x.seq||0));idx.forEach((i,j)=>{r[i]=docs[j];});}
+  return r;
+}
 
 function vTableau(){
   const f=S.docs.filter(d=>d.type==='facture');
