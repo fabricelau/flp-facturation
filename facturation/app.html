@@ -707,7 +707,7 @@ function renderNav(){
 document.addEventListener('click',e=>{if(e.target.closest('#nav a,#mnav a')){S.clientView=null;if(e.target.closest('a').getAttribute('href')==='#'+S.view)render();}});
 function route(){const h=location.hash.slice(1);S.view=VIEWS.some(([k])=>k===h)?h:'tableau';render();}
 window.addEventListener('hashchange',route);
-document.addEventListener('click',e=>{const n=e.target.closest('[data-new]');if(n){const base=n.dataset.for?{clientId:n.dataset.for}:{};if(n.dataset.new==='facture')chooseFacture(base);else openEditor(newDoc(n.dataset.new,base));}});
+document.addEventListener('click',e=>{const n=e.target.closest('[data-new]');if(n){const base=n.dataset.for?{clientId:n.dataset.for}:{};{const ac=n.dataset.for&&clientById(n.dataset.for);if(ac&&ac.archive)setArchive(ac,false).catch(()=>{});}if(n.dataset.new==='facture')chooseFacture(base);else openEditor(newDoc(n.dataset.new,base));}});
 document.addEventListener('click',e=>{if(e.target.closest('[data-newavoir]'))avoirPicker();});
 function makeAvoir(d){
   const av=newDoc('avoir',{clientId:d.clientId,objet:'Avoir sur facture '+d.numero,saisie:d.saisie||'ht',lignes:d.lignes.map(l=>({...l,id:uid()})),factureId:d.id,avoirDe:d.numero,nature:d.nature});
@@ -859,6 +859,28 @@ function vDocs(which){
     <input type="text" id="search-${which}" placeholder="Rechercher un client, un numéro…" value="${esc(q)}" style="max-width:280px"></div>
   <div class="panel"><div class="list">${listHead()}${shownQ.length?shownQ.map(docRow).join(''):`<div class="empty">Aucun document ici.</div>`}</div></div>`;
 }
+function lastDocDate(c){return S.docs.filter(d=>d.clientId===c.id).reduce((m,d)=>d.date>m?d.date:m,'');}
+function inactiveClients(){const lim=new Date();lim.setFullYear(lim.getFullYear()-3);const L=lim.toISOString().slice(0,10);
+  return S.clients.filter(c=>!c.archive&&(()=>{const l=lastDocDate(c);if(l)return l<L;return String(c.updatedAt||'').slice(0,10)<L||!c.updatedAt;})()).sort((a,b)=>lastDocDate(a).localeCompare(lastDocDate(b)));}
+async function setArchive(c,on){const x={...c};if(on){x.archive=true;x.archiveLe=new Date().toISOString();}else{delete x.archive;delete x.archiveLe;}await put('clients',x);return x;}
+async function bulkArchive(){
+  const L=inactiveClients();if(!L.length){toast('Aucun client inactif depuis 3 ans');return;}
+  const r=await new Promise(res=>{openModal(`<div class="head"><h2>Archiver les clients inactifs</h2></div><div class="body" style="display:flex;flex-direction:column;gap:10px">
+    <p class="muted" style="font-size:14px;margin:0">${L.length} client${L.length>1?'s':''} sans devis ni facture depuis plus de 3 ans. Rien n'est supprimé : leurs factures restent dans l'historique, ils restent dans l'onglet « Archivés » et dans la recherche. Décoche ceux que tu veux garder dans ta liste.</p>
+    <div class="row" style="gap:8px"><button class="btn sm" data-a="all">Tout cocher</button><button class="btn sm" data-a="none">Tout décocher</button></div>
+    <div style="max-height:52vh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px 10px">${L.map(c=>`<label class="cond-opt" style="padding:5px 0"><input type="checkbox" data-arc="${c.id}" checked><span>${esc(c.nom)} <small class="muted">· ${lastDocDate(c)?'dernier document '+fmtDate(lastDocDate(c)):'aucun document'}</small></span></label>`).join('')}</div></div>
+    <div class="foot"><button class="btn ghost" data-a="close">Annuler</button><button class="btn primary" data-a="ok">Archiver la sélection</button></div>`,dl=>{
+      const cnt=()=>{$('[data-a="ok"]',dl).textContent=`Archiver ${$$('[data-arc]:checked',dl).length} client(s)`;};cnt();
+      dl.addEventListener('change',cnt);
+      dl.addEventListener('click',e=>{const a=e.target.closest('[data-a]');if(!a)return;const k=a.dataset.a;
+        if(k==='all'||k==='none'){$$('[data-arc]',dl).forEach(i=>i.checked=k==='all');cnt();}
+        if(k==='close'){closeModal();res(null);}
+        if(k==='ok'){const ids=$$('[data-arc]:checked',dl).map(i=>i.dataset.arc);closeModal();res(ids);}});});});
+  if(!r||!r.length)return;
+  let n=0;toast(`Archivage de ${r.length} client(s)…`);
+  for(const id of r){const c=clientById(id);if(c){try{await setArchive(c,true);n++;}catch(e){}}}
+  render();toast(`${n} client${n>1?'s':''} archivé${n>1?'s':''} · retrouve-les dans l'onglet « Archivés »`);
+}
 function ficheManque(c){const m=[];if(!/^\d{9}$/.test(String(c.siren||'').replace(/\s/g,'')))m.push('SIREN');if(!String(c.adresse||'').trim()||/^BP\s*\d+$/i.test(String(c.adresse).trim()))m.push('adresse');if(!/^\d{5}$/.test(String(c.cp||'').trim()))m.push('code postal');if(!String(c.ville||'').trim())m.push('ville');return m;}
 async function fixClients(startId){
   const queue=[...S.clients].filter(c=>c.type==='pro'&&ficheManque(c).length);const lastInv=c=>S.docs.filter(d=>d.clientId===c.id&&d.type==='facture').reduce((m,d)=>d.date>m?d.date:m,'');
@@ -877,16 +899,18 @@ function vClients(){
   const words=nz(q).split(/\s+/).filter(Boolean);
   const cf=S.filter.clients||'tous';const isPro=c=>c.type==='pro';
   const lastInv=c=>S.docs.filter(d=>d.clientId===c.id&&d.type==='facture').reduce((m,d)=>d.date>m?d.date:m,'');
-  const ofTab=k=>k==='pro'?all.filter(isPro):k==='part'?all.filter(c=>!isPro(c)):k==='fix'?all.filter(c=>isPro(c)&&ficheManque(c).length).sort((a,b)=>lastInv(b).localeCompare(lastInv(a))):all;
-  const tabs=[['tous','Tous'],['part','Particuliers'],['pro','Professionnels'],['fix','À compléter']];
-  const base=ofTab(cf);
+  const act=all.filter(c=>!c.archive);
+  const ofTab=k=>k==='arch'?all.filter(c=>c.archive):k==='pro'?act.filter(isPro):k==='part'?act.filter(c=>!isPro(c)):k==='fix'?act.filter(c=>isPro(c)&&ficheManque(c).length).sort((a,b)=>lastInv(b).localeCompare(lastInv(a))):act;
+  const tabs=[['tous','Tous'],['part','Particuliers'],['pro','Professionnels'],['fix','À compléter'],['arch','Archivés']].filter(([k])=>k!=='arch'||all.some(c=>c.archive));
+  const base=words.length&&cf==='tous'?all:ofTab(cf);
+  const inact=inactiveClients();
   const list=words.length?base.filter(c=>{const hay=nz([c.nom,c.prenom,c.nomFamille,c.contact,c.email,(c.emails||[]).map(m=>m.nom+' '+m.email).join(' '),c.tel,c.adresse,c.cp,c.ville,c.siren,c.tvaIntra].join(' '))+' '+String(c.tel||'').replace(/\s/g,'');return words.every(w=>hay.includes(w));}):base;
-  return `<div class="head"><div><h1>Clients</h1><p>${all.length} client${all.length>1?'s':''}. Leurs coordonnées se recopient sur chaque devis et facture.</p></div><button class="btn primary" data-client="new">+ Nouveau client</button></div>
+  return `<div class="head"><div><h1>Clients</h1><p>${act.length} client${act.length>1?'s':''} actif${act.length>1?'s':''}${all.length>act.length?` · ${all.length-act.length} archivé${all.length-act.length>1?'s':''}`:''}. Leurs coordonnées se recopient sur chaque devis et facture.</p></div><div class="row">${inact.length?`<button class="btn" data-carch-bulk="1" title="Ranger les clients sans devis ni facture depuis 3 ans">Archiver les inactifs (${inact.length})</button>`:''}<button class="btn primary" data-client="new">+ Nouveau client</button></div></div>
   ${all.length?`<div class="chips">${tabs.map(([k,l])=>`<button class="chip ${cf===k?'on':''}" data-filter="clients:${k}">${l}<span class="c">${ofTab(k).length}</span></button>`).join('')}</div>`:''}
   ${cf==='fix'&&base.length?`<div class="banner" style="display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:12px 14px;border-radius:10px;background:var(--t-yellow,#FAF0D9);color:var(--ink)"><span style="font-size:14px">Ces clients professionnels n'ont pas de SIREN ou d'adresse complète : bientôt obligatoires sur les factures. Les plus récents sont en haut. Touche un client : la recherche dans l'annuaire se lance toute seule ; après l'enregistrement, le suivant s'ouvre.</span><button class="btn primary" data-cfix="${base[0].id}">Compléter à la suite</button></div>`:''}
   ${all.length?`<div class="row" style="justify-content:space-between;align-items:center"><input type="text" enterkeyhint="search" id="search-clients" placeholder="Rechercher un client : nom, ville, e-mail, téléphone, SIREN…" value="${esc(q)}" autocomplete="off" style="max-width:420px;flex:1">${words.length?`<span class="muted" style="font-size:14px">${list.length} résultat${list.length>1?'s':''}</span>`:''}</div>`:''}
-  <div class="panel"><div class="list">${!list.length&&all.length?`<div class="empty"><span>${words.length?`Aucun client ne correspond à « ${esc(q)} »${cf!=='tous'?' dans cet onglet':''}.`:cf==='fix'?'✓ Toutes les fiches des clients professionnels sont complètes.':cf==='pro'?'Aucun client professionnel.':'Aucun client particulier.'}</span></div>`:''}${list.length?list.map(c=>{const docs=S.docs.filter(d=>d.clientId===c.id&&d.type==='facture'&&d.seq);const ca=docs.reduce((s,d)=>s+totals(d).ht,0);
-    return `<button class="li" style="grid-template-columns:minmax(0,1fr) 130px 140px" ${cf==='fix'?`data-cfix="${c.id}"`:`data-cview="${c.id}"`}><span class="cl"><b style="font-weight:600">${esc(c.nom)}</b><small>${esc([c.adresse,c.cp,c.ville].filter(Boolean).join(', ')||'Adresse à compléter')}</small></span><span>${cf==='fix'?`<span class="pill p-warn" title="Manque : ${esc(ficheManque(c).join(', '))}">${esc(ficheManque(c).length>1?ficheManque(c).length+' infos':ficheManque(c)[0])}</span>`:`<span class="pill ${c.type==='pro'?'p-acc':'p-draft'}">${c.type==='pro'?'Professionnel':'Particulier'}</span>`}</span><span class="r num">${eur(ca)} HT</span></button>`;}).join(''):(all.length?'':`<div class="empty"><span>Pas encore de client.</span><button class="btn primary" data-client="new">Ajouter un client</button></div>`)}</div></div>`;
+  <div class="panel"><div class="list">${!list.length&&all.length?`<div class="empty"><span>${words.length?`Aucun client ne correspond à « ${esc(q)} »${cf!=='tous'?' dans cet onglet':''}.`:cf==='fix'?'✓ Toutes les fiches des clients professionnels sont complètes.':cf==='arch'?'Aucun client archivé.':cf==='pro'?'Aucun client professionnel.':'Aucun client particulier.'}</span></div>`:''}${list.length?list.map(c=>{const docs=S.docs.filter(d=>d.clientId===c.id&&d.type==='facture'&&d.seq);const ca=docs.reduce((s,d)=>s+totals(d).ht,0);
+    return `<button class="li" style="grid-template-columns:minmax(0,1fr) 130px 140px" ${cf==='fix'?`data-cfix="${c.id}"`:`data-cview="${c.id}"`}><span class="cl"><b style="font-weight:600">${esc(c.nom)}${c.archive&&cf!=='arch'?' <span class="pill p-draft" style="font-size:11px;vertical-align:middle">Archivé</span>':''}</b><small>${esc([c.adresse,c.cp,c.ville].filter(Boolean).join(', ')||'Adresse à compléter')}</small></span><span>${cf==='fix'?`<span class="pill p-warn" title="Manque : ${esc(ficheManque(c).join(', '))}">${esc(ficheManque(c).length>1?ficheManque(c).length+' infos':ficheManque(c)[0])}</span>`:`<span class="pill ${c.type==='pro'?'p-acc':'p-draft'}">${c.type==='pro'?'Professionnel':'Particulier'}</span>`}</span><span class="r num">${eur(ca)} HT</span></button>`;}).join(''):(all.length?'':`<div class="empty"><span>Pas encore de client.</span><button class="btn primary" data-client="new">Ajouter un client</button></div>`)}</div></div>`;
 }
 function vCatalogue(){
   const list=[...S.articles].sort((a,b)=>(a.designation||'').localeCompare(b.designation||''));
@@ -986,6 +1010,8 @@ function bindView(v){
     try{for(const d of drafts)await deleteDraft(d);toast(`${drafts.length} brouillon${drafts.length>1?'s':''} supprimé${drafts.length>1?'s':''}`);}catch(e){console.error(e);toast('Certains brouillons n\'ont pas pu être supprimés. Réessaie.');}}));
   $$('[data-cview]',v).forEach(b=>b.addEventListener('click',()=>{S.clientView=b.dataset.cview;render();window.scrollTo(0,0);}));
   $$('[data-cfix]',v).forEach(b=>b.addEventListener('click',()=>fixClients(b.dataset.cfix)));
+  $$('[data-carch-bulk]',v).forEach(b=>b.addEventListener('click',()=>bulkArchive()));
+  $$('[data-carch]',v).forEach(b=>b.addEventListener('click',async()=>{const c=clientById(b.dataset.carch);if(!c)return;const on=!c.archive;try{await setArchive(c,on);toast(on?'Client archivé : il est rangé dans l’onglet « Archivés »':'Client désarchivé : il est de retour dans ta liste');render();}catch(e){toast(e.message||'Erreur');}}));
   $$('[data-cback]',v).forEach(b=>b.addEventListener('click',()=>{S.clientView=null;render();}));
   $$('[data-cattab]',v).forEach(b=>b.addEventListener('click',()=>{S.catTab=b.dataset.cattab;render();}));
   $$('[data-formule]',v).forEach(b=>b.addEventListener('click',()=>formuleForm(b.dataset.formule==='new'?null:S.formules.find(f=>f.id===b.dataset.formule))));
@@ -1026,7 +1052,7 @@ function bindView(v){
 /* ---------- client & article forms ---------- */
 function clientForm(c,dup){
   if(dup&&c){const {id,updatedAt,createdAt,source,...rest}=c;c=null;dup={...rest,_de:rest.nom};}
-  const x=dup?{id:null,...dup}:c?{...c}:{id:null,nom:'',prenom:'',nomFamille:'',type:'particulier',siren:'',tvaIntra:'',adresse:'',cp:'',ville:'',email:'',tel:'',contact:''};
+  const x=dup?{...dup,id:null,archive:undefined,archiveLe:undefined}:c?{...c}:{id:null,nom:'',prenom:'',nomFamille:'',type:'particulier',siren:'',tvaIntra:'',adresse:'',cp:'',ville:'',email:'',tel:'',contact:''};
   if(x.type!=='pro'&&!x.prenom&&!x.nomFamille&&x.nom){const p=x.nom.split(' ');x.prenom=p.length>1?p.shift():'';x.nomFamille=p.join(' ');}
   const f=(k,l,type='text',cls='')=>`<div class="field ${cls}"><label for="c-${k}">${l}</label><input type="${type}" id="c-${k}" data-k="${k}" value="${esc(x[k])}"></div>`;
   return new Promise(res=>openModal(`<div class="panel-h"><h2>${c?'Modifier le client':dup?'Dupliquer le client':'Nouveau client'}</h2><button class="btn ghost sm" data-a="close" aria-label="Fermer">${ICON.x}</button></div>
@@ -1118,7 +1144,7 @@ function formHtml(d){
   if(d.type==='facture'&&!d.numero&&!Array.isArray(d.condsOn)){d.condsOn=[];delete d.condsOff;}
   const cl=[...S.clients].sort((a,b)=>(a.nom||'').localeCompare(b.nom||''));
   return `<div class="panel"><div class="form">
-    <div class="field full"><label for="e-client">Client</label><div class="row" style="flex-wrap:nowrap"><select id="e-client"><option value="">Choisir un client…</option>${cl.map(c=>`<option value="${c.id}" ${c.id===d.clientId?'selected':''}>${esc(c.nom)}</option>`).join('')}</select><button class="btn" id="e-newclient">+ Nouveau</button></div></div>
+    <div class="field full"><label for="e-client">Client</label><div class="row" style="flex-wrap:nowrap"><select id="e-client"><option value="">Choisir un client…</option>${cl.filter(c=>!c.archive||c.id===d.clientId).map(c=>`<option value="${c.id}" ${c.id===d.clientId?'selected':''}>${esc(c.nom)}</option>`).join('')}${cl.some(c=>c.archive&&c.id!==d.clientId)?`<optgroup label="Clients archivés">${cl.filter(c=>c.archive&&c.id!==d.clientId).map(c=>`<option value="${c.id}">${esc(c.nom)}</option>`).join('')}</optgroup>`:''}</select><button class="btn" id="e-newclient">+ Nouveau</button></div></div>
     <div class="field full"><label for="e-objet">Objet</label><input type="text" id="e-objet" data-f="objet" value="${esc(d.objet)}" placeholder="Ex. Rénovation salle de bain"></div>
     ${d.type==='facture'?`<div class="field"><label for="e-engagement">N° d'engagement (Chorus Pro)</label><input type="text" id="e-engagement" data-f="engagement" value="${esc(d.engagement||'')}" placeholder="Facultatif — bon de commande public" autocomplete="off"></div>
     <div class="field"><label for="e-codeService">Code service (Chorus Pro)</label><input type="text" id="e-codeService" data-f="codeService" value="${esc(d.codeService||'')}" placeholder="Facultatif" autocomplete="off"></div>`:''}
@@ -1174,7 +1200,7 @@ function bindForm(ed){
   $$('[data-f]',ed).forEach(i=>i.addEventListener('input',()=>{S.edit[i.dataset.f]=i.value;
     if(i.dataset.f==='date'&&i.value){const d=S.edit;if(d.type==='facture'){d.echeance=addDays(d.date,S.settings.delaiPaiement??30);const x=$('#e-echeance');if(x)x.value=d.echeance;}if(d.type==='devis'){d.validite=addDays(d.date,S.settings.validiteDevis||30);const x=$('#e-validite');if(x)x.value=d.validite;}}
     updatePreview();}));
-  $('#e-client',ed).addEventListener('change',e=>{S.edit.clientId=e.target.value;updatePreview();});
+  $('#e-client',ed).addEventListener('change',e=>{S.edit.clientId=e.target.value;updatePreview();const c=clientById(e.target.value);if(c&&c.archive)setArchive(c,false).then(()=>toast('Client désarchivé : il revient dans ta liste')).catch(()=>{});});
   $('#e-newclient',ed).addEventListener('click',async()=>{const c=await clientForm(null);if(c){S.edit.clientId=c.id;const keep=S.edit;setTimeout(()=>{if(S.edit===keep){const sel=$('#e-client');if(sel){if(!sel.querySelector(`option[value="${c.id}"]`))sel.insertAdjacentHTML('beforeend',`<option value="${c.id}">${esc(c.nom)}</option>`);sel.value=c.id;}updatePreview();}},150);}});
   bindLines(ed);
   $('#e-lines',ed).addEventListener('change',e=>{const tr=e.target.closest('tr[data-i]');if(!tr||e.target.tagName!=='SELECT')return;const l=S.edit.lignes[+tr.dataset.i];const k=e.target.dataset.l;l[k]=k==='tva'?+e.target.value:e.target.value;updatePreview();});
@@ -1755,8 +1781,8 @@ function vClientDetail(c){
   const sum=a=>a.reduce((s,d)=>s+totals(d).ttc,0);
   const paid=fact.filter(d=>d.statut==='payee');
   return `<div><button class="btn ghost" data-cback="1">${ICON.back} Tous les clients</button></div>
-  <div class="cl-head"><div><h1 style="font-size:26px">${esc(c.nom)}</h1><div class="cl-info"><span>${c.type==='pro'?'Professionnel':'Particulier'}${c.contact?' · '+esc(c.contact):''}${c.siren?' · SIREN '+esc(c.siren):''}</span><span>${esc([c.adresse,[c.cp,c.ville].filter(Boolean).join(' ')].filter(Boolean).join(', ')||'Adresse à compléter')}</span><span>${esc([c.email,c.tel].filter(Boolean).join(' · ')||'Pas d\'e-mail ni de téléphone')}</span>${(c.emails||[]).length?`<span>Autres e-mails : ${(c.emails||[]).map(m=>esc(m.nom?m.nom+' ('+m.email+')':m.email)).join(' · ')}</span>`:''}</div></div>
-    <div class="row"><button class="btn" data-client="${c.id}">Modifier</button><button class="btn" data-cdup="${c.id}" title="Créer un nouveau client à partir de celui-ci">Dupliquer</button><button class="btn" data-new="facture" data-for="${c.id}">+ Facture</button><button class="btn primary" data-new="devis" data-for="${c.id}">+ Devis</button></div></div>
+  <div class="cl-head"><div><h1 style="font-size:26px">${esc(c.nom)}${c.archive?' <span class="pill p-draft" style="font-size:12px;vertical-align:middle">Archivé</span>':''}</h1><div class="cl-info"><span>${c.type==='pro'?'Professionnel':'Particulier'}${c.contact?' · '+esc(c.contact):''}${c.siren?' · SIREN '+esc(c.siren):''}</span><span>${esc([c.adresse,[c.cp,c.ville].filter(Boolean).join(' ')].filter(Boolean).join(', ')||'Adresse à compléter')}</span><span>${esc([c.email,c.tel].filter(Boolean).join(' · ')||'Pas d\'e-mail ni de téléphone')}</span>${(c.emails||[]).length?`<span>Autres e-mails : ${(c.emails||[]).map(m=>esc(m.nom?m.nom+' ('+m.email+')':m.email)).join(' · ')}</span>`:''}</div></div>
+    <div class="row"><button class="btn" data-client="${c.id}">Modifier</button><button class="btn" data-cdup="${c.id}" title="Créer un nouveau client à partir de celui-ci">Dupliquer</button><button class="btn" data-carch="${c.id}">${c.archive?'Désarchiver':'Archiver'}</button><button class="btn" data-new="facture" data-for="${c.id}">+ Facture</button><button class="btn primary" data-new="devis" data-for="${c.id}">+ Devis</button></div></div>
   <div class="tiles">
     <div class="tile"><span class="lbl">Chiffre d'affaires</span><span class="val">${eur(ca)}</span><span class="sub">HT, depuis le début</span></div>
     <div class="tile ${late.length?'alert':''}"><span class="lbl">À encaisser</span><span class="val">${eur(sum(open))}</span><span class="sub">${late.length?late.length+' en retard':open.length+' facture'+(open.length>1?'s':'')}</span></div>
