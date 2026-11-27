@@ -888,7 +888,7 @@ function caYears(){
   const md=today().slice(5);
   for(const d of S.docs){if(!d.seq||d.test||!(d.type==='facture'||d.type==='avoir'))continue;const y=String(d.date).slice(0,4);const t=totals(d);const sg=d.type==='avoir'?-1:1;
     add(y,'ht',sg*Math.abs(t.ht));add(y,'ttc',sg*Math.abs(t.ttc));if(d.type==='facture')add(y,'n',1);if(String(d.date).slice(5)<=md)add(y,'dateHt',sg*Math.abs(t.ht));}
-  const ys=Object.keys(Y).sort();if(!ys.length)return '';
+  const ys=Object.keys(Y).filter(y=>+y>=2017).sort();if(!ys.length)return '';
   const first=+ys[0],cur=new Date().getFullYear();const rows=[];for(let y=first;y<=cur;y++)rows.push([String(y),Y[y]||{ht:0,ttc:0,n:0,dateHt:0}]);
   const max=Math.max(...rows.map(r=>r[1].ht),1);const tot=rows.reduce((a,r)=>a+r[1].ht,0);const best=rows.reduce((a,r)=>r[1].ht>a[1].ht?r:a,rows[0]);
   const prev=Y[cur-1];const curY=Y[cur]||{ht:0,dateHt:0};
