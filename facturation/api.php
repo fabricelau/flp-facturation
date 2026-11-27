@@ -59,7 +59,8 @@ switch ($action) {
             if ($col === 'docs' && locked_doc($old)) {
                 /* facture émise : le numéro, la date et les montants ne changent plus */
                 foreach (['numero', 'seq', 'type', 'date', 'lignes', 'saisie'] as $k)
-                    if (array_key_exists($k, $old) && json_encode($old[$k]) !== json_encode($data[$k] ?? null)) throw new RuntimeException('Une facture émise ne peut plus être modifiée. Fais un avoir.');
+                    if ($k === 'numero' && !empty($old['import']['source']) && is_string($data['numero'] ?? null) && $data['numero'] !== '' && ltrim((string)$old['numero'], '0') === $data['numero']) continue; /* historique importé : seuls les zéros de tête peuvent être retirés */
+                    elseif (array_key_exists($k, $old) && json_encode($old[$k]) !== json_encode($data[$k] ?? null)) throw new RuntimeException('Une facture émise ne peut plus être modifiée. Fais un avoir.');
             }
             /* un devis accepté en ligne entre-temps garde son acceptation, même si l'appli renvoie une copie plus ancienne */
             /* le classement dans Factures FLP est noté par le serveur : une copie plus ancienne ne l'efface pas */
