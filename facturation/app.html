@@ -110,7 +110,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .p-ok{background:var(--ok-soft);color:var(--ok)}
 .p-warn{background:var(--warn-soft);color:var(--warn)}
 .p-bad{background:var(--danger-soft);color:var(--danger)}
-.p-acc{background:var(--accent-soft);color:var(--accent)}
+.p-acc{background:var(--accent-soft);color:var(--accent)}.p-teal{background:var(--t-teal);color:var(--c-teal)}
 .p-chorus{background:var(--t-yellow,#FAF0D9);color:var(--c-yellow,#C98A12)}.pills{display:inline-flex;gap:5px;flex-wrap:wrap;align-items:center}
 
 .todo{display:flex;flex-direction:column}
@@ -577,7 +577,7 @@ function statusOf(d){
   return d.statut;
 }
 const STAT={
-  devis:{brouillon:['Brouillon','p-draft'],emis:['Émis, à envoyer','p-warn'],envoye:['Envoyé','p-sent'],accepte:['Accepté','p-acc'],refuse:['Refusé','p-bad'],annule:['Annulé','p-draft'],facture:['Facturé','p-ok']},
+  devis:{brouillon:['Brouillon','p-draft'],emis:['Émis, à envoyer','p-warn'],envoye:['Envoyé','p-sent'],accepte:['Accepté','p-ok'],refuse:['Refusé','p-bad'],annule:['Annulé','p-draft'],facture:['Facturé','p-teal']},
   facture:{brouillon:['Brouillon','p-draft'],emise:['À encaisser','p-sent'],retard:['En retard','p-warn'],payee:['Payée','p-ok'],avoiree:['Annulée (avoir)','p-draft']},
   avoir:{brouillon:['Brouillon','p-draft'],emis:['Émis','p-acc']}
 };
