@@ -6,6 +6,7 @@ require __DIR__ . '/lib.php';
 require __DIR__ . '/depot.php';
 if (is_file(__DIR__ . '/push.php')) require __DIR__ . '/push.php';
 if (is_file(__DIR__ . '/dropbox.php')) require __DIR__ . '/dropbox.php';
+if (is_file(__DIR__ . '/pj.php')) require __DIR__ . '/pj.php';
 if (is_file(__DIR__ . '/maj.php')) require __DIR__ . '/maj.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -76,6 +77,11 @@ switch ($action) {
         $col = valid_col($in['col'] ?? ''); $id = valid_id($in['id'] ?? '');
         db_tx(function (array &$d) use ($col, $id) {
             if ($col === 'docs' && locked_doc($d['docs'][$id] ?? null)) throw new RuntimeException('Une facture émise ne peut pas être supprimée (conservation obligatoire 10 ans).');
+            if (isset($d[$col][$id])) {
+                /* corbeille : gardé 30 jours */
+                $d['corbeille'] = array_values(array_filter((array)($d['corbeille'] ?? []), fn($x) => strtotime((string)($x['le'] ?? '')) > time() - 30 * 86400));
+                $d['corbeille'][] = ['cid' => bin2hex(random_bytes(6)), 'col' => $col, 'id' => $id, 'le' => date('c'), 'data' => $d[$col][$id]];
+            }
             unset($d[$col][$id]);
         });
         out(['ok' => true, 'version' => db_read()['version']]);
@@ -104,6 +110,38 @@ switch ($action) {
             'bcc' => !empty(cfg()['copy_me']) ? [$copy] : [], 'reply_to' => $conf['email'] ?? '']);
         out(['ok' => true, 'payload' => ['sent' => true]]);
     }
+    case 'corbeille': {
+        $l = array_values(array_filter((array)(db_read()['corbeille'] ?? []), fn($x) => strtotime((string)($x['le'] ?? '')) > time() - 30 * 86400));
+        out(['items' => array_reverse($l)]);
+    }
+    case 'corbeille_restore': {
+        $cid = (string)($in['cid'] ?? ''); $r = null;
+        db_tx(function (array &$d) use ($cid, &$r) {
+            foreach ((array)($d['corbeille'] ?? []) as $k => $x) {
+                if (($x['cid'] ?? '') !== $cid) continue;
+                $col = valid_col($x['col']); $id = (string)$x['id'];
+                if (isset($d[$col][$id])) $id = $id . '-r' . substr(bin2hex(random_bytes(3)), 0, 4);
+                $d[$col][$id] = $x['data']; unset($d['corbeille'][$k]); $d['corbeille'] = array_values($d['corbeille']);
+                $r = ['col' => $col, 'id' => $id]; return;
+            }
+            throw new RuntimeException('Élément introuvable dans la corbeille (peut-être déjà restauré).');
+        });
+        out(['ok' => true] + $r + ['version' => db_read()['version']]);
+    }
+    case 'corbeille_del': {
+        $cid = (string)($in['cid'] ?? ''); $all = !empty($in['tout']);
+        db_tx(function (array &$d) use ($cid, $all) {
+            $d['corbeille'] = $all ? [] : array_values(array_filter((array)($d['corbeille'] ?? []), fn($x) => ($x['cid'] ?? '') !== $cid));
+        });
+        out(['ok' => true]);
+    }
+    case 'pj_list': out(['items' => pj_list(valid_id($_GET['doc'] ?? ''))]);
+    case 'pj_add': {
+        $doc = valid_id($_POST['doc'] ?? '');
+        try { out(['items' => pj_add($doc, $_FILES['f'] ?? [])]); } catch (RuntimeException $e) { fail($e->getMessage()); }
+    }
+    case 'pj_del': out(['items' => pj_del(valid_id($in['doc'] ?? ''), (string)($in['id'] ?? ''))]);
+    case 'pj_get': pj_send(valid_id($_GET['doc'] ?? ''), (string)($_GET['f'] ?? ''));
     case 'dbx_info': out(dbx_etat());
     case 'dbx_key': {
         $k = trim((string)($in['app_key'] ?? ''));

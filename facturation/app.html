@@ -454,6 +454,43 @@ async function remove(col,id){
     if(go){u.classList.add('spin');u.style.transform='translate(-50%,70px)';u.style.opacity=1;setTimeout(()=>location.reload(),350);}
     else{u.style.transition='transform .2s,opacity .2s';u.style.transform='translate(-50%,0)';u.style.opacity=0;setTimeout(()=>{u.style.cssText='';u.classList.remove('ready');},220);}on=false;});
 })();
+/* ---------- pièces jointes des devis ---------- */
+const pjSize=b=>b>=1048576?(b/1048576).toFixed(1).replace('.',',')+' Mo':Math.max(1,Math.round(b/1024))+' Ko';
+async function pjPanel(ed,d){
+  const box=$('#pj-box',ed);if(!box)return;const G=window.GPF;
+  const draw=items=>{if(!box.isConnected)return;
+    box.innerHTML=`${items.length?items.map(x=>`<div class="row" style="justify-content:space-between;border:1px solid var(--line);border-radius:8px;padding:8px 10px;flex-wrap:nowrap"><a href="${G.rest}pj_get?doc=${encodeURIComponent(d.id)}&f=${encodeURIComponent(x.id)}" target="_blank" rel="noopener" style="color:inherit;font-weight:600;word-break:break-word">${/^(jpe?g|png|webp|gif)$/.test(x.ext)?'🖼️':x.ext==='pdf'?'📄':'🎬'} ${esc(x.nom)}</a><span class="row" style="flex-wrap:nowrap;gap:8px"><small class="muted">${pjSize(x.taille)}</small><button class="btn ghost sm" data-pjdel="${esc(x.id)}" aria-label="Retirer">${ICON.x}</button></span></div>`).join(''):'<span class="muted" style="font-size:14px">Aucun document joint.</span>'}
+    <div class="row"><label class="btn" style="cursor:pointer">+ Ajouter des fichiers<input type="file" id="pj-in" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.mp4,.mov,application/pdf,image/*,video/mp4,video/quicktime" hidden></label><small class="muted">PDF, images ou vidéos · 20 Mo max par fichier</small></div>`;
+    $('#pj-in',box).addEventListener('change',async e=>{const files=[...e.target.files];for(const f of files){if(f.size>20*1024*1024){toast(`${f.name} : trop lourd (20 Mo max)`);continue;}
+      toast(`Envoi de ${f.name}…`);const fd=new FormData();fd.append('doc',d.id);fd.append('f',f,f.name);
+      try{const r=await fetch(G.rest+'pj_add',{method:'POST',credentials:'same-origin',headers:{'X-CSRF':G.nonce},body:fd});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.message||(r.status===413?'Fichier trop lourd pour le serveur':'Envoi impossible'));items=j.items;draw(items);toast(`${f.name} ajouté`);}catch(err){toast(`${f.name} : ${err.message}`);}}});
+    $$('[data-pjdel]',box).forEach(b=>b.addEventListener('click',async()=>{if(!await confirmBox('Retirer ce document ?','Le client ne le verra plus sur le lien du devis.','Retirer',true))return;try{const j=await pushApi('pj_del',{doc:d.id,id:b.dataset.pjdel});draw(j.items);}catch(err){toast(err.message);}}));
+  };
+  try{const j=await pushApi('pj_list?doc='+encodeURIComponent(d.id));draw(j.items||[]);}catch(e){box.innerHTML=`<span class="muted">Indisponible (${esc(e.message)})</span>`;}
+}
+/* ---------- corbeille ---------- */
+async function trashPanel(v){
+  const box=$('#trash-box',v);let items=[];
+  try{items=(await pushApi('corbeille')).items||[];}catch(e){box.innerHTML=`<span class="muted">Indisponible (${esc(e.message)})</span>`;return;}
+  const TY={clients:'Client',articles:'Article',formules:'Formule',docs:'Document'};
+  const lbl=x=>{const d=x.data||{};if(x.col==='clients')return d.nom||'Client';if(x.col==='articles')return d.designation||'Article';if(x.col==='formules')return d.nom||'Formule';const t={devis:'Devis',facture:'Facture',avoir:'Avoir'}[d.type]||'Document';const c=d.client&&d.client.nom||(clientById(d.clientId)||{}).nom||'';return `${t} ${d.numero||'brouillon'}${c?' · '+c:''}${d.objet?' · '+d.objet:''}`;};
+  const left=x=>Math.max(0,30-Math.floor((Date.now()-new Date(x.le).getTime())/86400000));
+  box.innerHTML=`<span class="muted" style="font-size:14px">Ce que tu supprimes (clients, brouillons, articles, formules) reste ici 30 jours. Tu peux le restaurer en un clic.</span>
+  ${items.length?`<div style="display:flex;flex-direction:column;gap:6px">${items.map(x=>`<div class="row" style="justify-content:space-between;border:1px solid var(--line);border-radius:8px;padding:8px 10px;flex-wrap:nowrap"><span style="min-width:0"><span class="pill p-draft" style="font-size:11px">${TY[x.col]||x.col}</span> <b style="font-weight:600">${esc(lbl(x))}</b><br><small class="muted">supprimé le ${esc(fmtDate(String(x.le).slice(0,10)))} · effacé définitivement dans ${left(x)} jour${left(x)>1?'s':''}</small></span><span class="row" style="flex-wrap:nowrap;gap:6px"><button class="btn sm" data-trest="${esc(x.cid)}">Restaurer</button><button class="btn ghost sm" data-tdel="${esc(x.cid)}" aria-label="Supprimer définitivement">${ICON.x}</button></span></div>`).join('')}</div>
+  <div class="row"><button class="btn ghost" id="trash-empty">Vider la corbeille</button></div>`:'<span>La corbeille est vide.</span>'}`;
+  $$('[data-trest]',box).forEach(b=>b.addEventListener('click',async()=>{b.disabled=true;try{await pushApi('corbeille_restore',{cid:b.dataset.trest});toast('Restauré');setTimeout(()=>location.reload(),600);}catch(e){toast(e.message);b.disabled=false;}}));
+  $$('[data-tdel]',box).forEach(b=>b.addEventListener('click',async()=>{if(!await confirmBox('Supprimer définitivement ?','Cet élément ne pourra plus être restauré.','Supprimer',true))return;try{await pushApi('corbeille_del',{cid:b.dataset.tdel});trashPanel(v);}catch(e){toast(e.message);}}));
+  const em=$('#trash-empty',box);if(em)em.addEventListener('click',async()=>{if(!await confirmBox('Vider la corbeille ?',`${items.length} élément${items.length>1?'s':''} seront supprimés définitivement.`,'Vider',true))return;try{await pushApi('corbeille_del',{tout:true});trashPanel(v);}catch(e){toast(e.message);}});
+}
+/* ---------- badge sur l'icône (iPhone / Android / ordinateur) ---------- */
+function badgeCount(){
+  const today=new Date().toISOString().slice(0,10);const d7=new Date(Date.now()-7*86400000).toISOString().slice(0,10);
+  const late=S.docs.filter(d=>d.type==='facture'&&!d.test&&statusOf(d)==='retard').length;
+  const dv=S.docs.filter(d=>d.type==='devis'&&!d.test&&d.statut==='envoye'&&String(d.date||'')<=d7&&(!d.validite||d.validite>=today)).length;
+  return late+dv;
+}
+let _badge=-1;
+function updBadge(){try{if(!('setAppBadge' in navigator))return;const n=badgeCount();if(n===_badge)return;_badge=n;(n?navigator.setAppBadge(n):navigator.clearAppBadge()).catch(()=>{});}catch(e){}}
 /* ---------- sauvegarde Dropbox ---------- */
 async function dbxPanel(v){
   const box=$('#dbx-box',v);let e;
@@ -760,7 +797,7 @@ function dedAcompteForm(){
 
 /* ---------- views ---------- */
 function render(){
-  renderNav();
+  renderNav();setTimeout(updBadge,0);
   const v=$('#view');
   if(S.mode==='loading'){v.innerHTML=`<div class="empty">Chargement de tes données…</div>`;return;}
   if(S.mode==='db'&&S.loaded.size<5){v.innerHTML=`<div class="empty">Chargement de tes données…</div>`;return;}
@@ -973,6 +1010,7 @@ function vParams(){
     <span id="maj-etat" style="font-size:14px">…</span>
     <div class="row"><button class="btn" id="maj-go">Vérifier et installer maintenant</button></div>
   </div></div>`:''}
+  ${HOSTED?`<div class="panel"><div class="sec-title">Corbeille</div><div class="body" style="padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px" id="trash-box"><span class="muted">Chargement…</span></div></div>`:''}
   ${HOSTED?`<div class="panel"><div class="sec-title">Sauvegarde automatique dans Dropbox</div><div class="body" style="padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px" id="dbx-box"><span class="muted">Chargement…</span></div></div>`:''}
   <div class="panel"><div class="sec-title">Sauvegarde complète</div><div class="body" style="padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px">
     <span class="muted" style="font-size:14px">Un fichier avec toutes tes données (réglages, clients, catalogue, formules, devis et factures). Il sert de sauvegarde, et à transférer tes données d'un outil à l'autre.</span>
@@ -1032,6 +1070,7 @@ function bindView(v){
     const pi=$('#pwa-install',v);if(pi)pi.addEventListener('click',async()=>{const ev=S.installPrompt;if(!ev)return;S.installPrompt=null;try{ev.prompt();const r=await ev.userChoice;toast(r&&r.outcome==='accepted'?'Appli installée':'Installation annulée');}catch(e){}render();});
     if(HOSTED&&$('#push-state',v))pushPanel(v);
     if(HOSTED&&$('#dbx-box',v))dbxPanel(v);
+    if(HOSTED&&$('#trash-box',v))trashPanel(v);
     if(HOSTED&&$('#maj-etat',v)){const me=$('#maj-etat',v);const show=j=>{const c=j.check||{};me.innerHTML=`Version installée : <b>${esc(j.version||'d\'origine')}</b>${c.ok?(c.up_to_date?' · <span style="color:var(--ok)">à jour</span>':' · nouvelle version disponible : <b>'+esc(c.latest)+'</b>'):(c.msg?' · '+esc(c.msg):'')}${j.dernier?'<br><span class="muted">Dernière mise à jour automatique : '+esc(new Date(j.dernier.quand).toLocaleString('fr-FR'))+' — '+esc(j.dernier.msg)+'</span>':''}`;};
       fetch(window.GPF.rest+'maj',{credentials:'same-origin'}).then(r=>r.json()).then(show).catch(()=>{me.textContent='Impossible de vérifier pour l\'instant.';});
       $('#maj-go',v).addEventListener('click',async e=>{const b=e.currentTarget;b.disabled=true;b.textContent='Mise à jour…';try{const r=await fetch(window.GPF.rest+'maj',{method:'POST',credentials:'same-origin',headers:{'X-CSRF':window.GPF.nonce,'Content-Type':'application/json'},body:'{}'});const j=await r.json();toast(j.msg||j.message||'Terminé');if(r.ok&&/install/.test(j.msg||''))setTimeout(()=>location.reload(),1200);else{b.disabled=false;b.textContent='Vérifier et installer maintenant';show({...(j.etat||{}),check:{ok:r.ok,up_to_date:r.ok,msg:r.ok?'':j.msg}});}}catch(err){toast('Mise à jour impossible');b.disabled=false;b.textContent='Vérifier et installer maintenant';}});}
@@ -1130,12 +1169,13 @@ function renderEditor(){
     <div class="row">${ro?'':`<button class="btn" id="ed-save">Enregistrer le brouillon</button><button class="btn primary" id="ed-emit">${d.type==='devis'?'Émettre le devis':d.type==='avoir'?"Émettre l'avoir":'Émettre la facture'}</button>`}</div></div>
     <div class="ed-body ${ro?'ro':''}" data-tab="${S.edTab}">
       ${ro?'':`<div class="ed-tabs seg" style="grid-column:1/-1;justify-self:start"><button data-tab="form" class="${S.edTab==='form'?'on':''}">Saisie</button><button data-tab="preview" class="${S.edTab==='preview'?'on':''}">Aperçu</button></div>`}
-      ${ro?`<div class="paper-wrap" style="position:static"><div class="paper long" id="paper"></div></div><div class="side-actions">${roActions(d)}</div>`
+      ${ro?`<div class="paper-wrap" style="position:static"><div class="paper long" id="paper"></div></div><div class="side-actions">${roActions(d)}${HOSTED&&d.type==='devis'&&!['refuse','annule'].includes(d.statut)?`<div class="panel" style="margin-top:12px"><div class="panel-h"><h2 style="font-size:16px">Documents joints</h2></div><div class="body" id="pj-box" style="padding:10px 14px 14px;display:flex;flex-direction:column;gap:8px"><span class="muted">Chargement…</span></div><p class="muted" style="font-size:12px;margin:0 14px 12px">Visibles par le client sur le lien du devis.</p></div>`:''}</div>`
           :`<div class="ed-form">${formHtml(d)}</div><div class="paper-wrap"><div class="paper" id="paper"></div></div>`}
     </div>`;
   $('#ed-close').addEventListener('click',async()=>{if(!ro&&dirty()){if(!await confirmBox('Quitter sans enregistrer ?','Les modifications de ce brouillon seront perdues.','Quitter',true))return;}closeEditor();});
   $$('.ed-tabs button',ed).forEach(b=>b.addEventListener('click',()=>{S.edTab=b.dataset.tab;$('.ed-body',ed).dataset.tab=S.edTab;$$('.ed-tabs button',ed).forEach(x=>x.classList.toggle('on',x===b));}));
   if(!ro){bindForm(ed);$('#ed-save').addEventListener('click',saveDraft);$('#ed-emit').addEventListener('click',emit);}
+  else if($('#pj-box',ed))pjPanel(ed,d);
   else bindRo(ed);
   updatePreview();
 }
@@ -1165,6 +1205,7 @@ function formHtml(d){
   <div class="panel"><div class="panel-h"><h2>Lignes</h2></div><div class="lines" id="e-lines">${linesHtml(d)}</div>
     <div class="add-row"><button class="btn" id="e-addline">+ Ligne libre</button>${S.formules.length?`<select id="e-addform"><option value="">+ Formule…</option>${[...S.formules].sort((a,b)=>(a.nom||'').localeCompare(b.nom||'')).map(f=>`<option value="${f.id}">${esc(f.nom)}</option>`).join('')}</select>`:''}<button class="btn" id="e-remise">+ Remise</button>${d.type==='facture'&&!d.acompteDe?'<button class="btn" id="e-dedac">+ Déduire un acompte</button>':''}${S.articles.length?`<select id="e-addart"><option value="">+ Depuis le catalogue…</option>${[...S.articles].sort((a,b)=>(a.designation||'').localeCompare(b.designation||'')).map(a=>`<option value="${a.id}">${esc(a.designation)} · ${eur(+a.pu||0)}</option>`).join('')}</select>`:`<a class="btn ghost sm" href="#catalogue" id="e-tocat">Créer un catalogue</a>`}</div>
     <div class="totals" id="e-totals"></div></div>
+  ${HOSTED&&d.type==='devis'?`<div class="panel"><div class="panel-h"><h2>Documents joints</h2><span class="muted" style="font-size:13px">Visibles par le client sur le lien du devis : moodboard, plan de tournage, exemples…</span></div><div class="body" id="pj-box" style="padding:12px 16px 16px;display:flex;flex-direction:column;gap:8px"><span class="muted">Chargement…</span></div></div>`:''}
   ${(d.type==='devis'||d.type==='facture')&&condAll(d).length?`<div class="panel"><div class="panel-h"><h2>${d.type==='facture'?'Conditions sur la facture':'Conditions de la prestation'}</h2><span class="muted" style="font-size:13px">${d.type==='facture'?'Coche celles à imprimer sur cette facture':'Décoche celles à ne pas imprimer sur ce document'}</span></div><div class="form"><div class="field full cond-pick">${condAll(d).map((x,i)=>`<label class="cond-opt"><input type="checkbox" data-cond="${i}" ${(condFact(d)?d.condsOn.includes(x):!(d.condsOff||[]).includes(x))?'checked':''}><span>${esc(x)}</span></label>`).join('')}</div></div></div>`:''}
   <div class="panel"><div class="form">
     ${d.type==='devis'?`<div class="field full"><label style="display:flex;align-items:center;gap:8px;color:var(--ink);font-size:14px;font-weight:500"><input type="checkbox" id="e-acDem" ${d.acompteDemande?'checked':''} style="width:18px;height:18px"> Acompte à verser à la commande</label>
@@ -1200,6 +1241,7 @@ function bindForm(ed){
   $$('[data-f]',ed).forEach(i=>i.addEventListener('input',()=>{S.edit[i.dataset.f]=i.value;
     if(i.dataset.f==='date'&&i.value){const d=S.edit;if(d.type==='facture'){d.echeance=addDays(d.date,S.settings.delaiPaiement??30);const x=$('#e-echeance');if(x)x.value=d.echeance;}if(d.type==='devis'){d.validite=addDays(d.date,S.settings.validiteDevis||30);const x=$('#e-validite');if(x)x.value=d.validite;}}
     updatePreview();}));
+  if($('#pj-box',ed))pjPanel(ed,S.edit);
   $('#e-client',ed).addEventListener('change',e=>{S.edit.clientId=e.target.value;updatePreview();const c=clientById(e.target.value);if(c&&c.archive)setArchive(c,false).then(()=>toast('Client désarchivé : il revient dans ta liste')).catch(()=>{});});
   $('#e-newclient',ed).addEventListener('click',async()=>{const c=await clientForm(null);if(c){S.edit.clientId=c.id;const keep=S.edit;setTimeout(()=>{if(S.edit===keep){const sel=$('#e-client');if(sel){if(!sel.querySelector(`option[value="${c.id}"]`))sel.insertAdjacentHTML('beforeend',`<option value="${c.id}">${esc(c.nom)}</option>`);sel.value=c.id;}updatePreview();}},150);}});
   bindLines(ed);

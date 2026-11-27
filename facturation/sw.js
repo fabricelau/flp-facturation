@@ -4,6 +4,7 @@ self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 self.addEventListener('push', e => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (_) { d = { body: e.data ? e.data.text() : '' }; }
+  if (typeof d.badge === 'number' && self.navigator && 'setAppBadge' in self.navigator) { try { (d.badge ? self.navigator.setAppBadge(d.badge) : self.navigator.clearAppBadge()).catch(() => {}); } catch (_) {} }
   e.waitUntil(self.registration.showNotification(d.title || 'Facturation', {
     body: d.body || '', icon: 'assets/icone-192.png', badge: 'assets/icone-192.png',
     tag: d.tag || undefined, renotify: !!d.tag, data: { url: d.url || './' }

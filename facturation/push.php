@@ -89,10 +89,22 @@ function push_one(array $s, array $vapid, array $msg): int {
 }
 
 /** envoie une notification à tous les appareils ; les appareils désinscrits sont retirés */
+/** pastille de l'icône : factures en retard + devis envoyés sans réponse depuis 7 jours */
+function push_badge(): int {
+    try {
+        $d = db_read(); $t = date('Y-m-d'); $d7 = date('Y-m-d', time() - 7 * 86400); $n = 0;
+        foreach ((array)$d['docs'] as $x) {
+            if (!empty($x['test'])) continue;
+            if (($x['type'] ?? '') === 'facture' && ($x['statut'] ?? '') === 'emise' && !empty($x['echeance']) && $x['echeance'] < $t) $n++;
+            elseif (($x['type'] ?? '') === 'devis' && ($x['statut'] ?? '') === 'envoye' && (string)($x['date'] ?? '') <= $d7 && (empty($x['validite']) || $x['validite'] >= $t)) $n++;
+        }
+        return $n;
+    } catch (Throwable $e) { return -1; }
+}
 function push_send(string $title, string $body, string $url = '', string $tag = ''): array {
-    $j = push_load(); $ok = 0; $gone = [];
+    $j = push_load(); $ok = 0; $gone = []; $badge = push_badge();
     foreach ($j['subs'] as $id => $s) {
-        try { $code = push_one($s, $j['vapid'], ['title' => $title, 'body' => $body, 'url' => $url ?: base_url(), 'tag' => $tag]); }
+        try { $code = push_one($s, $j['vapid'], ['title' => $title, 'body' => $body, 'url' => $url ?: base_url(), 'tag' => $tag] + ($badge >= 0 ? ['badge' => $badge] : [])); }
         catch (Throwable $e) { error_log('Notification : ' . $e->getMessage()); $code = 0; }
         if ($code >= 200 && $code < 300) $ok++;
         elseif ($code === 404 || $code === 410) $gone[] = $id;

@@ -4,6 +4,7 @@ declare(strict_types=1);
 define('FLP', 1);
 require __DIR__ . '/lib.php';
 if (is_file(__DIR__ . '/push.php')) require __DIR__ . '/push.php';
+if (is_file(__DIR__ . '/pj.php')) require __DIR__ . '/pj.php';
 
 header('X-Frame-Options: DENY');
 header('X-Content-Type-Options: nosniff');
@@ -22,6 +23,7 @@ $data = db_read();
 $d = find_doc($data, $token);
 $conf = $data['config']['entreprise'] ?? [];
 if (!$d) show(null, 'Ce devis est introuvable. Le lien est peut-être incomplet : contacte-nous.');
+if ($d && isset($_GET['pj']) && function_exists('pj_send') && !in_array($d['statut'] ?? '', ['brouillon', 'annule'], true)) pj_send((string)$d['id'], (string)$_GET['pj']);
 
 $formKey = hash_hmac('sha256', $token, (string)(cfg()['cron_key'] ?? 'k'));
 $err = '';
@@ -121,9 +123,17 @@ function show(?array $d, string $err): void {
         echo '</div>';
         if ($t['franchise']) echo '<p class="muted small">TVA non applicable, article 293 B du CGI.</p>';
         if (!empty($d['notes'])) echo '<p class="small">' . nl2br(h($d['notes'])) . '</p>';
-        $cond = array_values(array_filter(array_map('trim', explode("\n", (string)($conf['conditionsDevis'] ?? '')))));
+        $off = array_map('trim', (array)($d['condsOff'] ?? []));
+        $cond = array_values(array_filter(array_map('trim', explode("\n", (string)($conf['conditionsDevis'] ?? ''))), fn($c) => $c !== '' && !in_array($c, $off, true)));
         if ($cond) { echo '<h2>Conditions</h2><ul class="small">'; foreach ($cond as $c) { if (empty($d['acompteDemande'])) $c = preg_replace('/\s+et de l[\'’]acompte(?=\s*\.?\s*$)/iu', '', $c); echo '<li>' . h($c) . '</li>'; } echo '</ul>'; }
         echo '</section>';
+
+        $pjs = function_exists('pj_list') ? pj_list((string)$d['id']) : [];
+        if ($pjs) {
+            echo '<section class="card"><h2>Documents joints</h2><ul class="pj">';
+            foreach ($pjs as $x) echo '<li><a href="?t=' . rawurlencode($GLOBALS['token']) . '&amp;pj=' . h($x['id']) . '" target="_blank" rel="noopener">' . (in_array($x['ext'], ['jpg', 'jpeg', 'png', 'webp', 'gif'], true) ? '🖼️' : ($x['ext'] === 'pdf' ? '📄' : '🎬')) . ' ' . h($x['nom']) . '</a> <span class="muted small">' . pj_size((int)$x['taille']) . '</span></li>';
+            echo '</ul></section>';
+        }
 
         echo '<section class="card act">';
         if ($st === 'accepte' || $st === 'facture') {
@@ -153,6 +163,7 @@ function show(?array $d, string $err): void {
 .paper{border-top:4px solid var(--acc)}.top{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}.logo{max-height:56px;max-width:180px;display:block;margin-bottom:8px}
 .co{font-size:17px}.ttl{text-align:right}.ttl h1{margin:0;color:var(--acc);letter-spacing:.06em;font-size:24px}.num{font-family:ui-monospace,Menlo,monospace;font-weight:600}
 .muted{color:var(--muted)}.small{font-size:13px}.cl{margin:20px 0 14px auto;width:min(320px,100%);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.pj{list-style:none;padding:0;margin:8px 0 0;display:flex;flex-direction:column;gap:8px}.pj li{border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:flex;justify-content:space-between;gap:10px;align-items:center}.pj a{color:inherit;font-weight:600;text-decoration:none;word-break:break-word}.pj a:hover{text-decoration:underline}
 .evt{background:var(--bg);border-radius:8px;padding:10px 12px;margin:10px 0;font-size:14px}
 .tw{overflow-x:auto}table{width:100%;border-collapse:collapse;min-width:480px;font-size:14px}th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);border-bottom:1.5px solid var(--ink);padding:6px 4px}
 td{padding:8px 4px;border-bottom:1px solid var(--line);vertical-align:top}td small{display:block;color:var(--muted);font-size:12.5px}.r{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
