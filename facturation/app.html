@@ -111,6 +111,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .p-warn{background:var(--warn-soft);color:var(--warn)}
 .p-bad{background:var(--danger-soft);color:var(--danger)}
 .p-acc{background:var(--accent-soft);color:var(--accent)}#ptr{position:fixed;top:calc(env(safe-area-inset-top,0px) - 30px);left:50%;transform:translate(-50%,0);z-index:9999;width:40px;height:40px;border-radius:50%;background:var(--surface,#fff);color:var(--muted,#888);box-shadow:0 2px 10px rgba(0,0,0,.25);display:grid;place-items:center;opacity:0;pointer-events:none}#ptr.ready{color:var(--accent)}#ptr.spin svg{animation:ptrspin .7s linear infinite}@keyframes ptrspin{to{transform:rotate(360deg)}}
+.ca-years{padding:8px 16px 16px;display:flex;flex-direction:column;gap:6px}.cy-row{display:grid;grid-template-columns:86px minmax(0,1fr) 110px 62px 66px;gap:10px;align-items:center;font-size:14px}.cy-bar{height:14px;background:var(--neutral-soft,#eee);border-radius:7px;overflow:hidden}.cy-bar>span{display:block;height:100%;background:var(--accent);border-radius:7px}.cy-v{text-align:right;font-weight:600;white-space:nowrap}.cy-y{white-space:nowrap}.cy-e{white-space:nowrap}.cy-n,.cy-e{font-size:12px;text-align:right}@media(max-width:640px){.cy-row{grid-template-columns:44px minmax(0,1fr) 84px 50px;gap:8px;font-size:13px}.cy-n,.cy-c{display:none}}
 .p-teal{background:var(--t-teal);color:var(--c-teal)}
 .p-chorus{background:var(--t-yellow,#FAF0D9);color:var(--c-yellow,#C98A12)}.pills{display:inline-flex;gap:5px;flex-wrap:wrap;align-items:center}
 
@@ -878,7 +879,27 @@ function vTableau(){
   <div class="cols2">
     <div class="panel"><div class="panel-h"><h2>Chiffre d'affaires HT, 12 derniers mois</h2></div><div style="padding:12px 16px 8px">${caChart()}</div></div>
     <div class="panel"><div class="panel-h"><h2>Prestations les plus vendues en ${new Date().getFullYear()}</h2></div>${topPrestations()}</div>
-  </div>`;
+  </div>
+  ${caYears()}`;
+}
+/* chiffre d'affaires de toutes les années (factures émises − avoirs), HT */
+function caYears(){
+  const Y={};const add=(y,k,v)=>{Y[y]=Y[y]||{ht:0,ttc:0,n:0,dateHt:0};Y[y][k]+=v;};
+  const md=today().slice(5);
+  for(const d of S.docs){if(!d.seq||d.test||!(d.type==='facture'||d.type==='avoir'))continue;const y=String(d.date).slice(0,4);const t=totals(d);const sg=d.type==='avoir'?-1:1;
+    add(y,'ht',sg*Math.abs(t.ht));add(y,'ttc',sg*Math.abs(t.ttc));if(d.type==='facture')add(y,'n',1);if(String(d.date).slice(5)<=md)add(y,'dateHt',sg*Math.abs(t.ht));}
+  const ys=Object.keys(Y).sort();if(!ys.length)return '';
+  const first=+ys[0],cur=new Date().getFullYear();const rows=[];for(let y=first;y<=cur;y++)rows.push([String(y),Y[y]||{ht:0,ttc:0,n:0,dateHt:0}]);
+  const max=Math.max(...rows.map(r=>r[1].ht),1);const tot=rows.reduce((a,r)=>a+r[1].ht,0);const best=rows.reduce((a,r)=>r[1].ht>a[1].ht?r:a,rows[0]);
+  const prev=Y[cur-1];const curY=Y[cur]||{ht:0,dateHt:0};
+  const e0=v=>Math.round(v).toLocaleString('fr-FR').replace(/\u202f|\u00a0/g,' ')+' €';const evo=(a,b)=>b>0?Math.round((a-b)/b*100):null;
+  const ev=prev?evo(curY.ht,prev.dateHt):null;
+  return `<div class="panel"><div class="panel-h"><h2>Chiffre d'affaires par année</h2><span class="muted" style="font-size:13px">HT, factures émises moins avoirs</span></div>
+  <div style="padding:12px 16px 4px;display:flex;gap:18px;flex-wrap:wrap;font-size:14px">
+    <span>Depuis ${first} : <b>${eur(tot)} HT</b></span><span>Meilleure année : <b>${best[0]}</b> (${eur(best[1].ht)})</span>
+    ${prev?`<span>${cur} à ce jour : <b>${eur(curY.ht)}</b>${ev!==null?` · <span style="color:${ev>=0?'var(--ok)':'var(--danger)'};font-weight:600">${ev>=0?'+':''}${ev} %</span> vs ${cur-1} à la même date (${eur(prev.dateHt)})`:''}</span>`:''}
+  </div>
+  <div class="ca-years">${rows.slice().reverse().map(([y,v])=>{const pv=Y[+y-1];const e=y==String(cur)?null:pv?evo(v.ht,pv.ht):null;return `<div class="cy-row"><span class="cy-y">${y}${y==String(cur)?'<small class="muted cy-c"> en cours</small>':''}</span><span class="cy-bar"><span style="width:${Math.max(v.ht>0?1.5:0,v.ht/max*100).toFixed(1)}%;${y==String(cur)?'opacity:.6':''}"></span></span><span class="cy-v num">${e0(v.ht)}</span><span class="cy-n muted">${v.n} fact.</span><span class="cy-e">${e===null?'':`<span style="color:${e>=0?'var(--ok)':'var(--danger)'}">${e>=0?'▲':'▼'} ${Math.abs(e)} %</span>`}</span></div>`;}).join('')}</div></div>`;
 }
 function vDocs(which){
   const types=which==='devis'?['devis']:['facture','avoir'];
