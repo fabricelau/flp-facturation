@@ -112,6 +112,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .p-bad{background:var(--danger-soft);color:var(--danger)}
 .p-acc{background:var(--accent-soft);color:var(--accent)}#ptr{position:fixed;top:calc(env(safe-area-inset-top,0px) - 30px);left:50%;transform:translate(-50%,0);z-index:9999;width:40px;height:40px;border-radius:50%;background:var(--surface,#fff);color:var(--muted,#888);box-shadow:0 2px 10px rgba(0,0,0,.25);display:grid;place-items:center;opacity:0;pointer-events:none}#ptr.ready{color:var(--accent)}#ptr.spin svg{animation:ptrspin .7s linear infinite}@keyframes ptrspin{to{transform:rotate(360deg)}}
 .ca-years{padding:8px 16px 16px;display:flex;flex-direction:column;gap:6px}.cy-row{display:grid;grid-template-columns:86px minmax(0,1fr) 110px 62px 66px;gap:10px;align-items:center;font-size:14px}.cy-bar{height:14px;background:var(--neutral-soft,#eee);border-radius:7px;overflow:hidden}.cy-bar>span{display:block;height:100%;background:var(--accent);border-radius:7px}.cy-v{text-align:right;font-weight:600;white-space:nowrap}.cy-y{white-space:nowrap}.cy-e{white-space:nowrap}.cy-n,.cy-e{font-size:12px;text-align:right}@media(max-width:640px){.cy-row{grid-template-columns:44px minmax(0,1fr) 84px 50px;gap:8px;font-size:13px}.cy-n,.cy-c{display:none}}
+.ana-list{display:flex;flex-direction:column;padding:6px 8px 10px}.ana-row{display:grid;grid-template-columns:26px minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px;border-radius:8px;background:none;border:0;text-align:left;color:inherit;font:inherit;cursor:pointer;width:100%}button.ana-row:hover{background:var(--neutral-soft,#f2f2f2)}.ana-rk{font-weight:700;color:var(--muted);text-align:center}.ana-nm{display:flex;flex-direction:column;gap:5px;min-width:0}.ana-nm b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ana-bar{height:6px;border-radius:3px;background:var(--neutral-soft,#eee);overflow:hidden}.ana-bar>span{display:block;height:100%;background:var(--accent);border-radius:3px}.ana-v{display:flex;flex-direction:column;align-items:flex-end;white-space:nowrap}.ana-v small{font-size:12px}.ana-stack{display:flex;height:16px;border-radius:8px;overflow:hidden;gap:2px}.ana-stack>span{display:block;height:100%}.ana-dot{width:12px;height:12px;border-radius:50%;justify-self:center}
 .p-teal{background:var(--t-teal);color:var(--c-teal)}
 .p-chorus{background:var(--t-yellow,#FAF0D9);color:var(--c-yellow,#C98A12)}.pills{display:inline-flex;gap:5px;flex-wrap:wrap;align-items:center}
 
@@ -886,7 +887,41 @@ function vTableau(){
     <div class="panel"><div class="panel-h"><h2>Chiffre d'affaires HT, 12 derniers mois</h2></div><div style="padding:12px 16px 8px">${caChart()}</div></div>
     <div class="panel"><div class="panel-h"><h2>Prestations les plus vendues en ${new Date().getFullYear()}</h2></div>${topPrestations()}</div>
   </div>
+  <div class="cols2">${topClients()}${caTypes()}</div>
   ${caYears()}`;
+}
+/* ---------- analyses : top clients et types de prestation ---------- */
+document.addEventListener('click',e=>{const b=e.target.closest('[data-dscope]');if(b){S.dashScope=b.dataset.dscope;render();}});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-cview-go]');if(b&&clientById(b.dataset.cviewGo)){S.clientView=b.dataset.cviewGo;location.hash='#clients';render();window.scrollTo(0,0);}});
+function dashScopeSel(){const sc=S.dashScope||'annee';const y=new Date().getFullYear();return `<div class="seg" style="font-size:13px"><button data-dscope="annee" class="${sc==='annee'?'on':''}">${y}</button><button data-dscope="prec" class="${sc==='prec'?'on':''}">${y-1}</button><button data-dscope="tout" class="${sc==='tout'?'on':''}">Depuis 2015</button></div>`;}
+function dashDocs(){const sc=S.dashScope||'annee';const y=new Date().getFullYear();
+  return S.docs.filter(d=>d.seq&&!d.test&&(d.type==='facture'||d.type==='avoir')&&String(d.date)>='2015'&&(sc==='tout'||String(d.date).slice(0,4)===String(sc==='prec'?y-1:y)));}
+const htSigned=d=>(d.type==='avoir'?-1:1)*Math.abs(totals(d).ht);
+const e0=v=>Math.round(v).toLocaleString('fr-FR').replace(/\u202f|\u00a0/g,' ')+' €';
+function topClients(){
+  const by={};for(const d of dashDocs()){const k=d.clientId||'?';by[k]=by[k]||{ht:0,n:0};by[k].ht+=htSigned(d);if(d.type==='facture')by[k].n++;}
+  const tot=Object.values(by).reduce((a,v)=>a+v.ht,0);const L=Object.entries(by).filter(([,v])=>v.ht>0.5).sort((a,b)=>b[1].ht-a[1].ht).slice(0,10);
+  const max=L.length?L[0][1].ht:1;
+  const nm=id=>{const c=clientById(id);const d=S.docs.find(x=>x.clientId===id&&x.client);return (c&&c.nom)||(d&&d.client.nom)||'Client inconnu';};
+  return `<div class="panel"><div class="panel-h"><h2>Top 10 des clients</h2>${dashScopeSel()}</div>
+  ${L.length?`<div class="ana-list">${L.map(([id,v],i)=>`<button class="ana-row" data-cview-go="${esc(id)}"><span class="ana-rk">${i+1}</span><span class="ana-nm"><b>${esc(nm(id))}</b><span class="ana-bar"><span style="width:${(v.ht/max*100).toFixed(1)}%"></span></span></span><span class="ana-v"><b>${e0(v.ht)}</b><small class="muted">${tot>0?Math.round(v.ht/tot*100):0} % · ${v.n} fact.</small></span></button>`).join('')}</div>
+  <div class="muted" style="font-size:12px;padding:0 16px 14px">Total de la période : ${e0(tot)} HT. Ces ${L.length} clients en font ${tot>0?Math.round(L.reduce((a,x)=>a+x[1].ht,0)/tot*100):0} %.</div>`:`<div class="empty" style="padding:24px">Aucune facture sur cette période.</div>`}</div>`;
+}
+const CA_TYPES=[['mariage','Mariages','var(--c-pink,#D4537E)'],['photo','Photo (shooting, portraits, packshots)','var(--c-blue,#2F6FDB)'],['pub','Publicité & spots','var(--c-orange,#D9733A)'],['event','Événementiel & captations','var(--c-teal,#1E9C8C)'],['corp','Corporate & institutionnel','var(--c-green,#2E9E55)'],['autre','Autres','var(--muted,#888)']];
+function caType(d){const c=clientById(d.clientId)||d.client||{};const t=[d.objet,...(d.lignes||[]).map(l=>(l.designation||'')+' '+(l.details||''))].join(' ').toLowerCase();
+  if(/mariage|wedding|mari[ée]s?\b|cérémonie laïque/.test(t))return 'mariage';
+  if(/photo|shooting|portrait|packshot|book\b/.test(t))return 'photo';
+  if(/\bspot|publicit|\bpub\b|teaser|clip|film promo|promotionnel|réseaux sociaux|reel/.test(t))return 'pub';
+  if(/soirée|évènement|événement|evenement|captation|salon|conférence|concert|spectacle|gala|festival|séminaire|inauguration|lancement/.test(t))return 'event';
+  return (c.type==='pro')?'corp':'autre';}
+function caTypes(){
+  const by={};for(const d of dashDocs()){const k=caType(d);by[k]=(by[k]||0)+htSigned(d);}
+  const tot=Object.values(by).reduce((a,v)=>a+Math.max(0,v),0);
+  const L=CA_TYPES.map(([k,l,c])=>[k,l,c,Math.max(0,by[k]||0)]).filter(x=>x[3]>0.5);
+  return `<div class="panel"><div class="panel-h"><h2>Répartition par type de prestation</h2>${dashScopeSel()}</div>
+  ${tot>0?`<div style="padding:14px 16px 6px"><div class="ana-stack">${L.map(([k,l,c,v])=>`<span title="${esc(l)} : ${e0(v)}" style="width:${(v/tot*100).toFixed(2)}%;background:${c}"></span>`).join('')}</div></div>
+  <div class="ana-list">${L.sort((a,b)=>b[3]-a[3]).map(([k,l,c,v])=>`<div class="ana-row" style="cursor:default"><span class="ana-dot" style="background:${c}"></span><span class="ana-nm"><b>${esc(l)}</b></span><span class="ana-v"><b>${e0(v)}</b><small class="muted">${Math.round(v/tot*100)} %</small></span></div>`).join('')}</div>
+  <div class="muted" style="font-size:12px;padding:0 16px 14px">Classement automatique d'après les libellés des factures (HT, avoirs déduits).</div>`:`<div class="empty" style="padding:24px">Aucune facture sur cette période.</div>`}</div>`;
 }
 /* chiffre d'affaires de toutes les années (factures émises − avoirs), HT */
 function caYears(){
