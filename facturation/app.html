@@ -113,6 +113,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .p-acc{background:var(--accent-soft);color:var(--accent)}#ptr{position:fixed;top:calc(env(safe-area-inset-top,0px) - 30px);left:50%;transform:translate(-50%,0);z-index:9999;width:40px;height:40px;border-radius:50%;background:var(--surface,#fff);color:var(--muted,#888);box-shadow:0 2px 10px rgba(0,0,0,.25);display:grid;place-items:center;opacity:0;pointer-events:none}#ptr.ready{color:var(--accent)}#ptr.spin svg{animation:ptrspin .7s linear infinite}@keyframes ptrspin{to{transform:rotate(360deg)}}
 .ca-years{padding:8px 16px 16px;display:flex;flex-direction:column;gap:6px}.cy-row{display:grid;grid-template-columns:86px minmax(0,1fr) 110px 62px 66px;gap:10px;align-items:center;font-size:14px}.cy-bar{height:14px;background:var(--neutral-soft,#eee);border-radius:7px;overflow:hidden}.cy-bar>span{display:block;height:100%;background:var(--accent);border-radius:7px}.cy-v{text-align:right;font-weight:600;white-space:nowrap}.cy-y{white-space:nowrap}.cy-e{white-space:nowrap}.cy-n,.cy-e{font-size:12px;text-align:right}@media(max-width:640px){.cy-row{grid-template-columns:44px minmax(0,1fr) 84px 50px;gap:8px;font-size:13px}.cy-n,.cy-c{display:none}}
 .ana-list{display:flex;flex-direction:column;padding:6px 8px 10px}.ana-row{display:grid;grid-template-columns:26px minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px;border-radius:8px;background:none;border:0;text-align:left;color:inherit;font:inherit;cursor:pointer;width:100%}button.ana-row:hover{background:var(--neutral-soft,#f2f2f2)}.ana-rk{font-weight:700;color:var(--muted);text-align:center}.ana-nm{display:flex;flex-direction:column;gap:5px;min-width:0}.ana-nm b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ana-bar{height:6px;border-radius:3px;background:var(--neutral-soft,#eee);overflow:hidden}.ana-bar>span{display:block;height:100%;background:var(--accent);border-radius:3px}.ana-v{display:flex;flex-direction:column;align-items:flex-end;white-space:nowrap}.ana-v small{font-size:12px}.ana-stack{display:flex;height:16px;border-radius:8px;overflow:hidden;gap:2px}.ana-stack>span{display:block;height:100%}.ana-dot{width:12px;height:12px;border-radius:50%;justify-self:center}
+#pk-lockscreen{position:fixed;inset:0;z-index:100000;background:var(--bg,#f4f3f1);display:grid;place-items:center;padding:24px}.pkl-card{width:100%;max-width:340px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center}.pkl-card h2{margin:6px 0 0}.pkl-card p{margin:0}.pkl-err{color:var(--danger);font-size:14px;min-height:1em}
 .p-teal{background:var(--t-teal);color:var(--c-teal)}
 .p-chorus{background:var(--t-yellow,#FAF0D9);color:var(--c-yellow,#C98A12)}.pills{display:inline-flex;gap:5px;flex-wrap:wrap;align-items:center}
 
@@ -469,6 +470,61 @@ async function pjPanel(ed,d){
     $$('[data-pjdel]',box).forEach(b=>b.addEventListener('click',async()=>{if(!await confirmBox('Retirer ce document ?','Le client ne le verra plus sur le lien du devis.','Retirer',true))return;try{const j=await pushApi('pj_del',{doc:d.id,id:b.dataset.pjdel});draw(j.items);}catch(err){toast(err.message);}}));
   };
   try{const j=await pushApi('pj_list?doc='+encodeURIComponent(d.id));draw(j.items||[]);}catch(e){box.innerHTML=`<span class="muted">Indisponible (${esc(e.message)})</span>`;}
+}
+/* ---------- Face ID / Touch ID (clés d'accès) ---------- */
+const b64u=buf=>btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const ub64u=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-s.length%4)%4)),c=>c.charCodeAt(0));
+const pkLS={get:()=>{try{return localStorage.getItem('flp_pk_id')||'';}catch(e){return '';}},set:v=>{try{v?localStorage.setItem('flp_pk_id',v):localStorage.removeItem('flp_pk_id');}catch(e){}}};
+const pkName=()=>{const u=navigator.userAgent;return /iPhone/.test(u)?'iPhone':/iPad/.test(u)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1)?'iPad':/Android/.test(u)?'Android':/Mac/.test(u)?'Mac':/Windows/.test(u)?'PC Windows':'Appareil';};
+async function pkSupported(){try{return !!(window.PublicKeyCredential&&await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable());}catch(e){return false;}}
+async function pkAssert(o){const c=await navigator.credentials.get({publicKey:{challenge:ub64u(o.challenge),rpId:o.rpId,allowCredentials:(o.allow||[]).map(id=>({type:'public-key',id:ub64u(id)})),userVerification:'required',timeout:o.timeout||60000}});
+  return {id:c.id,clientDataJSON:b64u(c.response.clientDataJSON),authenticatorData:b64u(c.response.authenticatorData),signature:b64u(c.response.signature)};}
+async function pkPanel(v){
+  const box=$('#pk-box',v);let e;try{e=await pushApi('pk_state');}catch(err){box.innerHTML=`<span class="muted">Indisponible (${esc(err.message)})</span>`;return;}
+  const sup=await pkSupported();const mine=pkLS.get();const here=e.appareils.some(a=>a.id===mine);if(mine&&!here)pkLS.set('');
+  const when=x=>x?fmtDate(String(x).slice(0,10)):'';
+  box.innerHTML=`<span class="muted" style="font-size:14px">Ouvre ta facturation avec ton visage (Face ID) ou ton doigt (Touch ID) au lieu du mot de passe, et verrouille-la automatiquement quand tu ne t'en sers pas.</span>
+  ${e.appareils.length?`<div style="display:flex;flex-direction:column;gap:6px">${e.appareils.map(a=>`<div class="row" style="justify-content:space-between;border:1px solid var(--line);border-radius:8px;padding:8px 10px;flex-wrap:nowrap"><span><b>${esc(a.nom)}</b>${a.id===mine?' <small style="color:var(--ok)">· cet appareil</small>':''} <small class="muted">activé le ${esc(when(a.cree))}${a.vu?' · utilisé le '+esc(when(a.vu)):''}</small></span><button class="btn ghost sm" data-pkdel="${esc(a.id)}">Retirer</button></div>`).join('')}</div>`:''}
+  ${!sup?`<span style="font-size:14px">Cet appareil ou ce navigateur ne propose pas Face ID / Touch ID pour les sites. Sur iPhone, ouvre l'appli Facturation installée sur l'écran d'accueil (iOS 16 ou plus récent).</span>`:here?'':`<div class="row"><button class="btn primary" id="pk-on">Activer Face ID sur cet ${esc(pkName())}</button></div>`}
+  ${e.appareils.length?`<label class="cond-opt"><input type="checkbox" id="pk-lock" ${e.lock?'checked':''}><span>Verrouiller l'appli quand je ne m'en sers pas, sur les appareils où Face ID est activé</span></label>
+  <div class="row" style="gap:8px;align-items:center"><span style="font-size:14px">Verrouiller après</span><select id="pk-delai" style="width:auto">${[[1,'1 minute'],[5,'5 minutes'],[15,'15 minutes'],[60,'1 heure']].map(([m,l])=>`<option value="${m}" ${e.delai==m?'selected':''}>${l}</option>`).join('')}</select><span style="font-size:14px">sans utilisation</span></div>`:''}`;
+  const on=$('#pk-on',box);if(on)on.addEventListener('click',async()=>{on.disabled=true;on.textContent='Face ID…';
+    try{const o=await pushApi('pk_reg_options');
+      const uid=new Uint8Array(16);crypto.getRandomValues(uid);
+      const c=await navigator.credentials.create({publicKey:{challenge:ub64u(o.challenge),rp:{name:'Facturation Fabrice Lau Production',id:o.rpId},user:{id:uid,name:'facturation',displayName:'Facturation FLP'},
+        pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required',residentKey:'preferred'},attestation:'none',timeout:60000}});
+      const pk=c.response.getPublicKey&&c.response.getPublicKey();if(!pk)throw new Error('ce navigateur est trop ancien pour Face ID (mets iOS à jour)');
+      await pushApi('pk_register',{id:c.id,publicKey:b64u(pk),alg:c.response.getPublicKeyAlgorithm(),clientDataJSON:b64u(c.response.clientDataJSON),nom:pkName()});
+      pkLS.set(c.id);toast('Face ID activé sur cet appareil');}
+    catch(err){toast(err.name==='NotAllowedError'?'Activation annulée':'Activation impossible : '+(err.message||err));}
+    pkPanel(v);});
+  const lk=$('#pk-lock',box),dl=$('#pk-delai',box);const save=()=>pushApi('pk_settings',{lock:lk.checked,delai:+dl.value}).then(()=>toast('Réglage enregistré')).catch(err=>toast(err.message));
+  if(lk){lk.addEventListener('change',save);dl.addEventListener('change',save);}
+  $$('[data-pkdel]',box).forEach(b=>b.addEventListener('click',async()=>{if(!await confirmBox('Retirer cet appareil ?','Il ne pourra plus ouvrir ta facturation avec Face ID (le mot de passe reste possible).','Retirer',true))return;try{await pushApi('pk_del',{id:b.dataset.pkdel});if(b.dataset.pkdel===pkLS.get())pkLS.set('');toast('Appareil retiré');}catch(err){toast(err.message);}pkPanel(v);}));
+}
+/* écran de verrouillage : affiché quand le serveur répond 423 */
+let pkLocked=false;
+function pkShowLock(){
+  if(pkLocked)return;pkLocked=true;
+  const o=document.createElement('div');o.id='pk-lockscreen';
+  o.innerHTML=`<div class="pkl-card"><img src="assets/icone.svg" alt="" width="64" height="64" style="border-radius:16px"><h2>Facturation verrouillée</h2><p class="muted">Fabrice Lau Production</p>
+    ${pkLS.get()?`<button class="btn primary" id="pkl-face" style="width:100%;justify-content:center">Déverrouiller avec Face ID</button>`:''}
+    <form id="pkl-form" style="display:flex;flex-direction:column;gap:8px;width:100%;${pkLS.get()?'display:none':''}"><input type="password" id="pkl-pw" placeholder="Mot de passe" autocomplete="current-password"><button class="btn ${pkLS.get()?'':'primary'}" style="justify-content:center">Déverrouiller</button></form>
+    ${pkLS.get()?`<button class="btn ghost sm" id="pkl-usepw">Utiliser le mot de passe</button>`:''}<p class="pkl-err" id="pkl-err"></p></div>`;
+  document.body.appendChild(o);document.body.style.overflow='hidden';
+  const err=t=>{$('#pkl-err',o).textContent=t||'';};
+  const face=async(auto)=>{err('');try{const opt=await (await _pkFetch(window.GPF.rest+'pk_unlock_options',{credentials:'same-origin'})).json();const a=await pkAssert(opt);
+      const r=await _pkFetch(window.GPF.rest+'pk_unlock',{method:'POST',credentials:'same-origin',headers:{'X-CSRF':window.GPF.nonce,'Content-Type':'application/json'},body:JSON.stringify(a)});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.message||'Refusé');location.reload();}
+    catch(e){if(auto===true)return;err(e.name==='NotAllowedError'?'Face ID annulé. Réessaie ou utilise le mot de passe.':(e.message||String(e)));}};
+  const fb=$('#pkl-face',o);if(fb){fb.addEventListener('click',()=>face(false));setTimeout(()=>face(true),250);}
+  const up=$('#pkl-usepw',o);if(up)up.addEventListener('click',()=>{$('#pkl-form',o).style.display='flex';up.remove();$('#pkl-pw',o).focus();});
+  $('#pkl-form',o).addEventListener('submit',async ev=>{ev.preventDefault();err('');try{const r=await _pkFetch(window.GPF.rest+'pk_unlock_pw',{method:'POST',credentials:'same-origin',headers:{'X-CSRF':window.GPF.nonce,'Content-Type':'application/json'},body:JSON.stringify({pw:$('#pkl-pw',o).value})});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.message||'Refusé');location.reload();}catch(e){err(e.message);}});
+}
+const _pkFetch=window.fetch.bind(window);
+if(HOSTED){
+  window.fetch=async(...a)=>{const r=await _pkFetch(...a);if(r.status===423){pkShowLock();}return r;};
+  if(pkLS.get())_pkFetch(window.GPF.rest+'pk_mark',{method:'POST',credentials:'same-origin',headers:{'X-CSRF':window.GPF.nonce,'Content-Type':'application/json'},body:'{}'}).catch(()=>{});
+  let hid=0;document.addEventListener('visibilitychange',()=>{if(document.hidden){hid=Date.now();return;}if(hid&&Date.now()-hid>55000)fetch(window.GPF.rest+'ping',{credentials:'same-origin'}).catch(()=>{});hid=0;});
 }
 /* ---------- corbeille ---------- */
 async function trashPanel(v){
@@ -1072,6 +1128,7 @@ function vParams(){
     <span id="maj-etat" style="font-size:14px">…</span>
     <div class="row"><button class="btn" id="maj-go">Vérifier et installer maintenant</button></div>
   </div></div>`:''}
+  ${HOSTED?`<div class="panel"><div class="sec-title">Face ID / Touch ID</div><div class="body" style="padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px" id="pk-box"><span class="muted">Chargement…</span></div></div>`:''}
   ${HOSTED?`<div class="panel"><div class="sec-title">Corbeille</div><div class="body" style="padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px" id="trash-box"><span class="muted">Chargement…</span></div></div>`:''}
   ${HOSTED?`<div class="panel"><div class="sec-title">Sauvegarde automatique dans Dropbox</div><div class="body" style="padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px" id="dbx-box"><span class="muted">Chargement…</span></div></div>`:''}
   <div class="panel"><div class="sec-title">Sauvegarde complète</div><div class="body" style="padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px">
@@ -1133,6 +1190,7 @@ function bindView(v){
     if(HOSTED&&$('#push-state',v))pushPanel(v);
     if(HOSTED&&$('#dbx-box',v))dbxPanel(v);
     if(HOSTED&&$('#trash-box',v))trashPanel(v);
+    if(HOSTED&&$('#pk-box',v))pkPanel(v);
     if(HOSTED&&$('#maj-etat',v)){const me=$('#maj-etat',v);const show=j=>{const c=j.check||{};me.innerHTML=`Version installée : <b>${esc(j.version||'d\'origine')}</b>${c.ok?(c.up_to_date?' · <span style="color:var(--ok)">à jour</span>':' · nouvelle version disponible : <b>'+esc(c.latest)+'</b>'):(c.msg?' · '+esc(c.msg):'')}${j.dernier?'<br><span class="muted">Dernière mise à jour automatique : '+esc(new Date(j.dernier.quand).toLocaleString('fr-FR'))+' — '+esc(j.dernier.msg)+'</span>':''}`;};
       fetch(window.GPF.rest+'maj',{credentials:'same-origin'}).then(r=>r.json()).then(show).catch(()=>{me.textContent='Impossible de vérifier pour l\'instant.';});
       $('#maj-go',v).addEventListener('click',async e=>{const b=e.currentTarget;b.disabled=true;b.textContent='Mise à jour…';try{const r=await fetch(window.GPF.rest+'maj',{method:'POST',credentials:'same-origin',headers:{'X-CSRF':window.GPF.nonce,'Content-Type':'application/json'},body:'{}'});const j=await r.json();toast(j.msg||j.message||'Terminé');if(r.ok&&/install/.test(j.msg||''))setTimeout(()=>location.reload(),1200);else{b.disabled=false;b.textContent='Vérifier et installer maintenant';show({...(j.etat||{}),check:{ok:r.ok,up_to_date:r.ok,msg:r.ok?'':j.msg}});}}catch(err){toast('Mise à jour impossible');b.disabled=false;b.textContent='Vérifier et installer maintenant';}});}

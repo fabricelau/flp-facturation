@@ -113,7 +113,7 @@ function login_attempt(string $pw): bool {
     $j = is_file($f) ? (json_decode((string)file_get_contents($f), true) ?: []) : [];
     $ip = $_SERVER['REMOTE_ADDR'] ?? '?';
     $ok = password_verify($pw, cfg()['password'] ?? '');
-    if ($ok) { unset($j[$ip]); start_session(); session_regenerate_id(true); $_SESSION['ok'] = 1; $_SESSION['pw'] = substr(cfg()['password'], -16); }
+    if ($ok) { unset($j[$ip]); start_session(); session_regenerate_id(true); $_SESSION['ok'] = 1; $_SESSION['pw'] = substr(cfg()['password'], -16); $_SESSION['unlocked'] = 1; $_SESSION['seen'] = time(); }
     else { $e = $j[$ip] ?? ['n' => 0, 't' => 0]; if (time() - $e['t'] > 900) $e['n'] = 0; $e['n']++; $e['t'] = time(); $j[$ip] = $e; usleep(700000); }
     @file_put_contents($f, json_encode($j), LOCK_EX);
     return $ok;

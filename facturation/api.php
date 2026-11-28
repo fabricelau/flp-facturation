@@ -7,6 +7,7 @@ require __DIR__ . '/depot.php';
 if (is_file(__DIR__ . '/push.php')) require __DIR__ . '/push.php';
 if (is_file(__DIR__ . '/dropbox.php')) require __DIR__ . '/dropbox.php';
 if (is_file(__DIR__ . '/pj.php')) require __DIR__ . '/pj.php';
+if (is_file(__DIR__ . '/passkey.php')) require __DIR__ . '/passkey.php';
 if (is_file(__DIR__ . '/maj.php')) require __DIR__ . '/maj.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -30,6 +31,12 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 if ($method !== 'GET') {
     if (!hash_equals(csrf(), (string)($_SERVER['HTTP_X_CSRF'] ?? ''))) fail('Session invalide. Recharge la page.', 403);
 }
+/* verrouillage Face ID : après un temps d'inactivité, l'appli demande Face ID (ou le mot de passe) */
+$PK_FREE = ['pk_unlock_options', 'pk_unlock', 'pk_unlock_pw', 'pk_state'];
+if (function_exists('pk_lock_on') && !empty($_SESSION['lock']) && pk_lock_on() && !in_array($action, $PK_FREE, true)) {
+    if (empty($_SESSION['unlocked']) || time() - (int)($_SESSION['seen'] ?? 0) > pk_delay()) { $_SESSION['unlocked'] = 0; session_write_close(); fail('Facturation verrouillée.', 423); }
+}
+if (!in_array($action, $PK_FREE, true)) $_SESSION['seen'] = time();
 session_write_close(); /* libère la session : les requêtes en parallèle ne s'attendent pas */
 $in = $method === 'GET' ? [] : (json_decode((string)file_get_contents('php://input'), true) ?? []);
 if (!is_array($in)) fail('Requête invalide.');
@@ -143,6 +150,21 @@ switch ($action) {
     }
     case 'pj_del': out(['items' => pj_del(valid_id($in['doc'] ?? ''), (string)($in['id'] ?? ''))]);
     case 'pj_get': pj_send(valid_id($_GET['doc'] ?? ''), (string)($_GET['f'] ?? ''));
+    case 'ping': out(['ok' => true]);
+    case 'pk_state': { start_session(); $j = pk_load(); $r = ['active' => (bool)$j['creds'], 'lock' => !empty($j['lock']), 'delai' => (int)($j['delai'] ?? 5), 'session' => !empty($_SESSION['lock']), 'unlocked' => !empty($_SESSION['unlocked']) && time() - (int)($_SESSION['seen'] ?? 0) <= pk_delay(),
+        'appareils' => array_map(fn($c) => ['id' => $c['id'], 'nom' => $c['nom'], 'cree' => $c['cree'], 'vu' => $c['vu'] ?? ''], $j['creds'])]; session_write_close(); out($r); }
+    case 'pk_reg_options': { $o = pk_options('register'); session_write_close(); out($o); }
+    case 'pk_register': { try { pk_register($in); start_session(); $_SESSION['lock'] = 1; $_SESSION['unlocked'] = 1; $_SESSION['seen'] = time(); session_write_close(); out(['ok' => true]); } catch (RuntimeException $e) { fail($e->getMessage()); } }
+    case 'pk_unlock_options': { $o = pk_options('unlock'); session_write_close(); out($o); }
+    case 'pk_unlock': { try { pk_check($in, 'unlock'); } catch (RuntimeException $e) { fail($e->getMessage(), 403); } start_session(); $_SESSION['unlocked'] = 1; $_SESSION['seen'] = time(); session_write_close(); out(['ok' => true]); }
+    case 'pk_unlock_pw': {
+        if (($w = login_blocked())) fail('Trop d’essais. Réessaie dans ' . ceil($w / 60) . ' minutes.', 429);
+        if (!login_attempt((string)($in['pw'] ?? ''))) fail('Mot de passe incorrect.', 403);
+        out(['ok' => true, 'nonce' => csrf()]);
+    }
+    case 'pk_mark': { start_session(); $_SESSION['lock'] = 1; $_SESSION['seen'] = time(); session_write_close(); out(['ok' => true]); }
+    case 'pk_settings': { $j = pk_load(); $j['lock'] = !empty($in['lock']); $j['delai'] = in_array((int)($in['delai'] ?? 5), [1, 5, 15, 60], true) ? (int)$in['delai'] : 5; pk_save($j); out(['ok' => true]); }
+    case 'pk_del': { $j = pk_load(); $id = (string)($in['id'] ?? ''); $j['creds'] = array_values(array_filter($j['creds'], fn($c) => $c['id'] !== $id)); pk_save($j); out(['ok' => true]); }
     case 'dbx_info': out(dbx_etat());
     case 'dbx_key': {
         $k = trim((string)($in['app_key'] ?? ''));

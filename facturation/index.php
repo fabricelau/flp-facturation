@@ -56,7 +56,18 @@ if (!logged_in()) {
         else $err = 'Mot de passe incorrect.';
     }
     page('Connexion', '<h1>Facturation</h1><p class="muted">Fabrice Lau Production</p>' . ($err ? '<p class="err">' . h($err) . '</p>' : '') . '
-      <form method="post"><label>Mot de passe<input type="password" name="pw" required autofocus autocomplete="current-password"></label><button>Se connecter</button></form>');
+      <div id="fid" style="display:none;margin:14px 0 4px"><button type="button" id="fid-b" style="width:100%">Se connecter avec Face ID</button><p class="err" id="fid-e" style="display:none;margin-top:10px"></p><p class="muted" style="text-align:center;margin:14px 0 0">ou avec ton mot de passe</p></div>
+      <form method="post"><label>Mot de passe<input type="password" name="pw" required autocomplete="current-password"></label><button>Se connecter</button></form>
+      <script>(function(){var id="";try{id=localStorage.getItem("flp_pk_id")||"";}catch(e){}if(!id||!window.PublicKeyCredential)return;
+      var u8=function(s){return Uint8Array.from(atob(s.replace(/-/g,"+").replace(/_/g,"/")+"===".slice((s.length+3)%4)),function(c){return c.charCodeAt(0);});};
+      var b6=function(b){return btoa(String.fromCharCode.apply(null,new Uint8Array(b))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");};
+      var box=document.getElementById("fid"),btn=document.getElementById("fid-b"),er=document.getElementById("fid-e");box.style.display="block";
+      var go=function(auto){er.style.display="none";fetch("passkey.php"+"?opt",{credentials:"same-origin"}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.message);return j;});})
+        .then(function(o){return navigator.credentials.get({publicKey:{challenge:u8(o.challenge),rpId:o.rpId,allowCredentials:o.allow.map(function(i){return {type:"public-key",id:u8(i)};}),userVerification:"required",timeout:60000}});})
+        .then(function(c){return fetch("passkey.php",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:c.id,clientDataJSON:b6(c.response.clientDataJSON),authenticatorData:b6(c.response.authenticatorData),signature:b6(c.response.signature)})});})
+        .then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.message);location.reload();});})
+        .catch(function(e){if(auto===true)return;er.textContent=e&&e.name==="NotAllowedError"?"Face ID annulé. Réessaie ou utilise ton mot de passe.":(e.message||e);er.style.display="block";});};
+      btn.addEventListener("click",function(){go(false);});setTimeout(function(){go(true);},300);})();</script>');
 }
 
 /* ---------- 3. compte et e-mails ---------- */
