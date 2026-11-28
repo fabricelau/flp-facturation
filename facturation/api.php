@@ -7,7 +7,6 @@ require __DIR__ . '/depot.php';
 if (is_file(__DIR__ . '/push.php')) require __DIR__ . '/push.php';
 if (is_file(__DIR__ . '/dropbox.php')) require __DIR__ . '/dropbox.php';
 if (is_file(__DIR__ . '/pj.php')) require __DIR__ . '/pj.php';
-if (is_file(__DIR__ . '/wa.php')) require __DIR__ . '/wa.php';
 if (is_file(__DIR__ . '/maj.php')) require __DIR__ . '/maj.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -144,20 +143,6 @@ switch ($action) {
     }
     case 'pj_del': out(['items' => pj_del(valid_id($in['doc'] ?? ''), (string)($in['id'] ?? ''))]);
     case 'pj_get': pj_send(valid_id($_GET['doc'] ?? ''), (string)($_GET['f'] ?? ''));
-    case 'wa_info': { $j = wa_load(); out(['phone' => $j['phone'] ?? '', 'configure' => !empty($j['apikey']) && !empty($j['phone']), 'accepte' => $j['accepte'] ?? true, 'dernier' => $j['dernier'] ?? null]); }
-    case 'wa_set': {
-        $p = wa_phone((string)($in['phone'] ?? '')); $k = trim((string)($in['apikey'] ?? ''));
-        if ($p === '') fail('Numéro WhatsApp invalide (ex. 0692 02 44 99 ou +262 692 02 44 99).');
-        $j = wa_load();
-        if ($k === '' && empty($j['apikey'])) fail('Colle la clé (apikey) reçue de CallMeBot sur WhatsApp.');
-        if ($k !== '' && !preg_match('/^[A-Za-z0-9_-]{4,40}$/', $k)) fail('Cette clé ne ressemble pas à une clé CallMeBot (quelques chiffres).');
-        $j['phone'] = $p; if ($k !== '') $j['apikey'] = $k; wa_save($j);
-        [$ok, $msg] = wa_send("👋 Ta facturation Fabrice Lau Production est reliée à WhatsApp. Tu recevras ici un message à chaque devis accepté.");
-        out(['ok' => $ok, 'msg' => $ok ? 'WhatsApp relié : un message de test vient de partir.' : $msg]);
-    }
-    case 'wa_pref': { $j = wa_load(); $j['accepte'] = !empty($in['accepte']); wa_save($j); out(['ok' => true]); }
-    case 'wa_test': { [$ok, $msg] = wa_send("🔔 Test de ta facturation : les messages WhatsApp fonctionnent."); out(['ok' => $ok, 'msg' => $msg]); }
-    case 'wa_off': { wa_save([]); out(['ok' => true]); }
     case 'dbx_info': out(dbx_etat());
     case 'dbx_key': {
         $k = trim((string)($in['app_key'] ?? ''));
