@@ -470,6 +470,26 @@ async function pjPanel(ed,d){
   };
   try{const j=await pushApi('pj_list?doc='+encodeURIComponent(d.id));draw(j.items||[]);}catch(e){box.innerHTML=`<span class="muted">Indisponible (${esc(e.message)})</span>`;}
 }
+/* ---------- WhatsApp (CallMeBot) ---------- */
+async function waPanel(v){
+  const box=$('#wa-box',v);let e;try{e=await pushApi('wa_info');}catch(err){box.innerHTML=`<span class="muted">Indisponible (${esc(err.message)})</span>`;return;}
+  const when=x=>x?fmtDate(String(x).slice(0,10))+' à '+String(x).slice(11,16):'';
+  box.innerHTML=`<span class="muted" style="font-size:14px">Dès qu'un client accepte un devis en ligne, tu reçois sur WhatsApp : le numéro du devis, le client, la prestation et le montant.</span>
+  ${e.configure?`<span style="color:var(--ok);font-weight:600">✓ Relié au ${esc(e.phone)}</span>
+    <label class="cond-opt"><input type="checkbox" id="wa-acc" ${e.accepte===false?'':'checked'}><span>Envoyer un message à chaque devis accepté</span></label>
+    ${e.dernier?`<span style="font-size:13px;color:${e.dernier.ok?'var(--muted)':'var(--danger)'}">Dernier envoi le ${esc(when(e.dernier.quand))} : ${esc(e.dernier.msg)}</span>`:''}
+    <div class="row"><button class="btn" id="wa-test">Envoyer un message de test</button><button class="btn ghost" id="wa-off">Déconnecter</button></div>`
+  :`<details open style="font-size:14px;line-height:1.55"><summary style="cursor:pointer;font-weight:600">Mise en place (2 minutes, gratuit)</summary><ol style="margin:8px 0 0 18px;padding:0;display:flex;flex-direction:column;gap:6px">
+    <li>Sur ton téléphone, ajoute ce contact : <b style="user-select:all">+34 610 08 06 60</b> (service gratuit <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener">CallMeBot</a> ; si ce numéro ne répond pas, prends celui indiqué sur leur page).</li>
+    <li>Envoie-lui sur WhatsApp exactement : <b style="user-select:all">I allow callmebot to send me messages</b></li>
+    <li>Il te répond avec ta clé (« apikey », quelques chiffres). Mets ici ton numéro et cette clé, puis « Relier ».</li></ol></details>
+    <div class="form" style="padding:0"><div class="field"><label for="wa-ph">Ton numéro WhatsApp</label><input type="tel" id="wa-ph" placeholder="0692 02 44 99" value="${esc(e.phone||'')}"></div><div class="field"><label for="wa-key">Clé CallMeBot (apikey)</label><input type="text" id="wa-key" inputmode="numeric" autocomplete="off" placeholder="123456"></div></div>
+    <div class="row"><button class="btn primary" id="wa-go">Relier WhatsApp</button></div>`}`;
+  const go=$('#wa-go',box);if(go)go.addEventListener('click',async()=>{go.disabled=true;go.textContent='Vérification…';try{const r=await pushApi('wa_set',{phone:$('#wa-ph',box).value,apikey:$('#wa-key',box).value});toast(r.msg);}catch(err){toast(err.message);}waPanel(v);});
+  const te=$('#wa-test',box);if(te)te.addEventListener('click',async()=>{te.disabled=true;try{const r=await pushApi('wa_test',{});toast(r.ok?'Message envoyé sur WhatsApp':r.msg);}catch(err){toast(err.message);}waPanel(v);});
+  const of=$('#wa-off',box);if(of)of.addEventListener('click',async()=>{if(!await confirmBox('Déconnecter WhatsApp ?','Tu ne recevras plus de message quand un devis est accepté.','Déconnecter',true))return;await pushApi('wa_off',{}).catch(()=>{});waPanel(v);});
+  const ac=$('#wa-acc',box);if(ac)ac.addEventListener('change',()=>pushApi('wa_pref',{accepte:ac.checked}).then(()=>toast('Réglage enregistré')).catch(err=>toast(err.message)));
+}
 /* ---------- corbeille ---------- */
 async function trashPanel(v){
   const box=$('#trash-box',v);let items=[];
@@ -1072,6 +1092,7 @@ function vParams(){
     <span id="maj-etat" style="font-size:14px">…</span>
     <div class="row"><button class="btn" id="maj-go">Vérifier et installer maintenant</button></div>
   </div></div>`:''}
+  ${HOSTED?`<div class="panel"><div class="sec-title">Message WhatsApp quand un devis est accepté</div><div class="body" style="padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px" id="wa-box"><span class="muted">Chargement…</span></div></div>`:''}
   ${HOSTED?`<div class="panel"><div class="sec-title">Corbeille</div><div class="body" style="padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px" id="trash-box"><span class="muted">Chargement…</span></div></div>`:''}
   ${HOSTED?`<div class="panel"><div class="sec-title">Sauvegarde automatique dans Dropbox</div><div class="body" style="padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px" id="dbx-box"><span class="muted">Chargement…</span></div></div>`:''}
   <div class="panel"><div class="sec-title">Sauvegarde complète</div><div class="body" style="padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px">
@@ -1133,6 +1154,7 @@ function bindView(v){
     if(HOSTED&&$('#push-state',v))pushPanel(v);
     if(HOSTED&&$('#dbx-box',v))dbxPanel(v);
     if(HOSTED&&$('#trash-box',v))trashPanel(v);
+    if(HOSTED&&$('#wa-box',v))waPanel(v);
     if(HOSTED&&$('#maj-etat',v)){const me=$('#maj-etat',v);const show=j=>{const c=j.check||{};me.innerHTML=`Version installée : <b>${esc(j.version||'d\'origine')}</b>${c.ok?(c.up_to_date?' · <span style="color:var(--ok)">à jour</span>':' · nouvelle version disponible : <b>'+esc(c.latest)+'</b>'):(c.msg?' · '+esc(c.msg):'')}${j.dernier?'<br><span class="muted">Dernière mise à jour automatique : '+esc(new Date(j.dernier.quand).toLocaleString('fr-FR'))+' — '+esc(j.dernier.msg)+'</span>':''}`;};
       fetch(window.GPF.rest+'maj',{credentials:'same-origin'}).then(r=>r.json()).then(show).catch(()=>{me.textContent='Impossible de vérifier pour l\'instant.';});
       $('#maj-go',v).addEventListener('click',async e=>{const b=e.currentTarget;b.disabled=true;b.textContent='Mise à jour…';try{const r=await fetch(window.GPF.rest+'maj',{method:'POST',credentials:'same-origin',headers:{'X-CSRF':window.GPF.nonce,'Content-Type':'application/json'},body:'{}'});const j=await r.json();toast(j.msg||j.message||'Terminé');if(r.ok&&/install/.test(j.msg||''))setTimeout(()=>location.reload(),1200);else{b.disabled=false;b.textContent='Vérifier et installer maintenant';show({...(j.etat||{}),check:{ok:r.ok,up_to_date:r.ok,msg:r.ok?'':j.msg}});}}catch(err){toast('Mise à jour impossible');b.disabled=false;b.textContent='Vérifier et installer maintenant';}});}

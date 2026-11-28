@@ -5,6 +5,7 @@ define('FLP', 1);
 require __DIR__ . '/lib.php';
 if (is_file(__DIR__ . '/push.php')) require __DIR__ . '/push.php';
 if (is_file(__DIR__ . '/pj.php')) require __DIR__ . '/pj.php';
+if (is_file(__DIR__ . '/wa.php')) require __DIR__ . '/wa.php';
 
 header('X-Frame-Options: DENY');
 header('X-Content-Type-Options: nosniff');
@@ -51,6 +52,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 send_mail(['to' => [cfg()['notify_email'] ?? ''], 'subject' => 'Devis ' . ($d['numero'] ?? '') . ' accepté en ligne',
                     'body' => "Bonne nouvelle !\n\nLe devis " . ($d['numero'] ?? '') . ' (' . ($client['nom'] ?? '') . ', ' . eur($t['ttc']) . " TTC) vient d'être accepté en ligne par $nom, le " . date('d/m/Y à H\hi') . ".\n\nIl est passé en « Accepté » dans ta facturation.\n" . base_url()]);
             } catch (Throwable $e) { error_log('Alerte devis accepté : ' . $e->getMessage()); }
+            if (function_exists('wa_devis_accepte')) wa_devis_accepte($d, (array)$client, $t, $nom);
             if (function_exists('push_event')) push_event('accepte', 'Devis ' . ($d['numero'] ?? '') . ' accepté ✅', ($client['nom'] ?? 'Le client') . ' · ' . eur($t['ttc']) . " TTC\nAccepté en ligne par $nom", 'devis-' . $d['id']);
             if (filter_var($client['email'] ?? '', FILTER_VALIDATE_EMAIL)) {
                 try {
